@@ -1,0 +1,32 @@
+# Local development stack: backend (FastAPI + Claude CLI) + frontend (nginx).
+#
+# Auth: the backend needs a Claude subscription token. Before `docker compose up`,
+# generate one on a logged-in machine and export it:
+#     export CLAUDE_CODE_OAUTH_TOKEN=$(claude setup-token)
+# Or run fully offline with canned responses:
+#     AGENT_BACKEND=mock docker compose up
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      AGENT_BACKEND: ${AGENT_BACKEND:-cli}
+      AGENT_LOG_JSON: "false"
+      AGENT_SESSION_STORE_PATH: /data/sessions.json
+      AGENT_CORS_ORIGINS: http://localhost:3000
+      # Subscription token (NOT an API key). Empty when running AGENT_BACKEND=mock.
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+    volumes:
+      - ./data:/data
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # The browser runs on the host, so it reaches the backend via the published port.
+        VITE_API_BASE_URL: http://localhost:8000
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend

@@ -1,0 +1,208 @@
+"""Claude backends.
+
+A backend is the thing that actually turns a prompt into a response. The platform
+talks to it through the :class:`ClaudeBackend` protocol, so the rest of the code
+never depends on *how* Claude is reached.
+
+Implementations:
+- :class:`CliSubprocessBackend` - drives the local ``claude`` CLI in headless mode
+  (``claude -p ... --output-format json``). This authenticates via the host's
+  Claude subscription (Max) OAuth credentials and does NOT consume API credits.
+  Multi-turn context is preserved with ``--resume <session_id>``.
+- :class:`MockBackend` - returns canned responses with no external process; used
+  for tests, demos, and offline development.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+from dataclasses import dataclass, field
+from typing import Protocol, runtime_checkable
+
+from agent_platform.config import Settings
+
+logger = logging.getLogger(__name__)
+
+
+class BackendError(RuntimeError):
+    """Raised when the backend fails to produce a valid response."""
+
+
+class BackendTimeoutError(BackendError):
+    """Raised when the backend exceeds its configured timeout."""
+
+
+@dataclass(slots=True)
+class BackendResult:
+    """Outcome of a single backend invocation.
+
+    Attributes:
+        text: The agent's textual response.
+        session_id: Backend session id, used to resume the conversation.
+        usage: Token/usage metadata reported by the backend, if any.
+    """
+
+    text: str
+    session_id: str | None
+    usage: dict[str, object] = field(default_factory=dict)
+
+
+@runtime_checkable
+class ClaudeBackend(Protocol):
+    """Protocol implemented by every Claude backend."""
+
+    async def run(self, prompt: str, resume_session_id: str | None = None) -> BackendResult:
+        """Send ``prompt`` to Claude and return the response.
+
+        Args:
+            prompt: The user message to send.
+            resume_session_id: When provided, resume that session so prior context
+                is available; otherwise start a fresh session.
+
+        Returns:
+            The parsed :class:`BackendResult`.
+
+        Raises:
+            BackendError: If the backend fails or returns an unparseable response.
+            BackendTimeoutError: If the invocation exceeds the configured timeout.
+        """
+        ...
+
+
+class CliSubprocessBackend:
+    """Backend that drives the ``claude`` CLI as a subprocess.
+
+    Uses headless JSON mode so the response can be parsed deterministically.
+    """
+
+    def __init__(
+        self,
+        binary: str = "claude",
+        timeout_seconds: float = 120.0,
+        model: str | None = None,
+    ) -> None:
+        """Initialize the backend.
+
+        Args:
+            binary: Path to the ``claude`` executable.
+            timeout_seconds: Hard timeout for a single invocation.
+            model: Optional model override passed via ``--model``.
+        """
+        self._binary = binary
+        self._timeout = timeout_seconds
+        self._model = model
+
+    def _build_command(self, prompt: str, resume_session_id: str | None) -> list[str]:
+        command = [self._binary, "-p", prompt, "--output-format", "json"]
+        if self._model:
+            command += ["--model", self._model]
+        if resume_session_id:
+            command += ["--resume", resume_session_id]
+        return command
+
+    async def run(self, prompt: str, resume_session_id: str | None = None) -> BackendResult:
+        """See :meth:`ClaudeBackend.run`."""
+        command = self._build_command(prompt, resume_session_id)
+        logger.debug("Invoking claude CLI", extra={"resume": resume_session_id, "model": self._model})
+
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except FileNotFoundError as exc:
+            raise BackendError(f"claude binary not found: {self._binary!r}") from exc
+
+        try:
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=self._timeout)
+        except TimeoutError as exc:
+            process.kill()
+            await process.wait()
+            raise BackendTimeoutError(f"claude CLI timed out after {self._timeout}s") from exc
+
+        if process.returncode != 0:
+            detail = stderr.decode("utf-8", errors="replace").strip()
+            raise BackendError(f"claude CLI exited with code {process.returncode}: {detail}")
+
+        return self._parse_output(stdout)
+
+    @staticmethod
+    def _parse_output(stdout: bytes) -> BackendResult:
+        raw = stdout.decode("utf-8", errors="replace").strip()
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise BackendError(f"claude CLI returned non-JSON output: {raw[:200]!r}") from exc
+
+        if not isinstance(payload, dict):
+            raise BackendError("claude CLI JSON output was not an object")
+
+        if payload.get("is_error"):
+            subtype = payload.get("subtype", "unknown")
+            raise BackendError(f"claude CLI reported an error (subtype={subtype})")
+
+        text = payload.get("result")
+        if not isinstance(text, str):
+            raise BackendError("claude CLI output missing a string 'result' field")
+
+        session_id = payload.get("session_id")
+        usage = payload.get("usage")
+        return BackendResult(
+            text=text,
+            session_id=session_id if isinstance(session_id, str) else None,
+            usage=usage if isinstance(usage, dict) else {},
+        )
+
+
+class MockBackend:
+    """In-memory backend with deterministic, canned responses.
+
+    Records every call for assertions and never touches the network or filesystem.
+    """
+
+    def __init__(self, reply: str = "mock response") -> None:
+        """Initialize the mock.
+
+        Args:
+            reply: Static text returned for every prompt.
+        """
+        self._reply = reply
+        self._counter = 0
+        self.calls: list[tuple[str, str | None]] = []
+
+    async def run(self, prompt: str, resume_session_id: str | None = None) -> BackendResult:
+        """See :meth:`ClaudeBackend.run`. Returns a canned response."""
+        self.calls.append((prompt, resume_session_id))
+        # Keep an existing session id stable across turns; mint one on first use.
+        if resume_session_id is None:
+            self._counter += 1
+            session_id = f"mock-session-{self._counter}"
+        else:
+            session_id = resume_session_id
+        return BackendResult(
+            text=f"{self._reply}: {prompt}",
+            session_id=session_id,
+            usage={"input_tokens": 0, "output_tokens": 0},
+        )
+
+
+def build_backend(settings: Settings) -> ClaudeBackend:
+    """Construct the backend selected by configuration.
+
+    Args:
+        settings: Application settings.
+
+    Returns:
+        A configured :class:`ClaudeBackend` implementation.
+    """
+    if settings.backend == "mock":
+        logger.info("Using MockBackend (no real Claude invocation)")
+        return MockBackend()
+    return CliSubprocessBackend(
+        binary=settings.claude_binary,
+        timeout_seconds=settings.claude_timeout_seconds,
+        model=settings.claude_model,
+    )

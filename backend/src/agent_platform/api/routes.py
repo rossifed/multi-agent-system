@@ -1,0 +1,104 @@
+"""API routes.
+
+Implements the Phase 0 endpoints. Every handler returns the standard response
+envelope and uses proper HTTP status codes. Business logic lives in the
+:class:`SessionManager`; handlers only translate between HTTP and the manager.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, status
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
+
+from agent_platform import __version__
+from agent_platform.api.dependencies import get_session_manager
+from agent_platform.core.session_manager import SessionManager, SessionNotFoundError
+from agent_platform.models.responses import ApiError, ApiSuccess
+
+logger = logging.getLogger(__name__)
+router = APIRouter()
+
+ManagerDep = Annotated[SessionManager, Depends(get_session_manager)]
+
+# Maps SessionManager error codes to HTTP status codes.
+_ERROR_STATUS = {
+    "AGENT_NOT_FOUND": status.HTTP_404_NOT_FOUND,
+    "BACKEND_TIMEOUT": status.HTTP_504_GATEWAY_TIMEOUT,
+    "BACKEND_ERROR": status.HTTP_502_BAD_GATEWAY,
+}
+
+
+class CreateAgentRequest(BaseModel):
+    """Body for creating an agent."""
+
+    name: str = Field(min_length=1, max_length=100, description="Human-friendly agent name.")
+
+
+class ChatRequest(BaseModel):
+    """Body for sending a message to an agent."""
+
+    agent_id: str = Field(min_length=1, description="Target agent id.")
+    message: str = Field(min_length=1, description="The prompt to send to the agent.")
+
+
+def _error_response(code: str, message: str, http_status: int) -> JSONResponse:
+    body = ApiError(error=message, code=code).model_dump()
+    return JSONResponse(status_code=http_status, content=body)
+
+
+@router.get("/health", tags=["system"])
+def health() -> ApiSuccess[dict[str, str]]:
+    """Liveness probe. Used by Docker/Railway health checks."""
+    return ApiSuccess(data={"service": "agent-platform", "version": __version__})
+
+
+@router.post("/agents", status_code=status.HTTP_201_CREATED, tags=["agents"])
+def create_agent(body: CreateAgentRequest, manager: ManagerDep) -> ApiSuccess[dict[str, object]]:
+    """Create a new agent (Claude Code session).
+
+    Returns the created agent's summary including its generated ``id``.
+    """
+    agent_id = manager.create_session(body.name)
+    return ApiSuccess(data=manager.get_session(agent_id))
+
+
+@router.get("/agents", tags=["agents"])
+def list_agents(manager: ManagerDep) -> ApiSuccess[dict[str, object]]:
+    """List all active agents."""
+    return ApiSuccess(data={"agents": manager.list_sessions()})
+
+
+@router.get("/agents/{agent_id}/outputs", tags=["agents"])
+def get_agent_outputs(agent_id: str, manager: ManagerDep) -> JSONResponse:
+    """Return the accumulated outputs (interaction history) for an agent."""
+    try:
+        outputs = manager.get_outputs(agent_id)
+    except SessionNotFoundError:
+        return _error_response("AGENT_NOT_FOUND", f"No agent with id {agent_id!r}", status.HTTP_404_NOT_FOUND)
+    body = ApiSuccess(data={"agent_id": agent_id, "outputs": outputs}).model_dump()
+    return JSONResponse(status_code=status.HTTP_200_OK, content=body)
+
+
+@router.post("/chat", tags=["chat"])
+async def chat(body: ChatRequest, manager: ManagerDep) -> JSONResponse:
+    """Send a message to an agent and return its response."""
+    result = await manager.send_message(body.agent_id, body.message)
+
+    if result.get("status") == "success":
+        body_out = ApiSuccess(
+            data={
+                "agent_id": result["agent_id"],
+                "response": result["response"],
+                "session_id": result["session_id"],
+                "usage": result["usage"],
+            }
+        ).model_dump()
+        return JSONResponse(status_code=status.HTTP_200_OK, content=body_out)
+
+    code = str(result.get("code", "INTERNAL_ERROR"))
+    http_status = _ERROR_STATUS.get(code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+    return _error_response(code, str(result.get("error", "Unknown error")), http_status)

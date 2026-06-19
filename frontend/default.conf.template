@@ -1,0 +1,13 @@
+# Rendered by nginx's envsubst at container start (${PORT} is substituted).
+server {
+    listen ${PORT};
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # SPA fallback: unknown routes serve index.html.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
