@@ -28,3 +28,7 @@ SESSION.md
 
 # OS / editor
 .DS_Store
+
+# Experiments scratch
+experiments/**/.venv/
+experiments/**/sandbox/
