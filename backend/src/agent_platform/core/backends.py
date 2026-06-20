@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
@@ -82,6 +83,9 @@ class CliSubprocessBackend:
         binary: str = "claude",
         timeout_seconds: float = 120.0,
         model: str | None = None,
+        permission_mode: str | None = None,
+        workspace_dir: str | None = None,
+        allowed_tools: str | None = None,
     ) -> None:
         """Initialize the backend.
 
@@ -89,15 +93,32 @@ class CliSubprocessBackend:
             binary: Path to the ``claude`` executable.
             timeout_seconds: Hard timeout for a single invocation.
             model: Optional model override passed via ``--model``.
+            permission_mode: ``--permission-mode`` value. ``"bypassPermissions"``
+                gives the agent full power (runs tools with no approval), making
+                it behave like a local terminal session. Must be gated by our own
+                authentication and a scoped workspace.
+            workspace_dir: Directory the agent runs in and is granted access to
+                (``--add-dir``); also the subprocess cwd. Scopes file access.
+            allowed_tools: Space-separated tool allowlist (``--allowedTools``).
+                ``None`` leaves the CLI default (all tools, subject to permission mode).
         """
         self._binary = binary
         self._timeout = timeout_seconds
         self._model = model
+        self._permission_mode = permission_mode
+        self._workspace_dir = workspace_dir
+        self._allowed_tools = allowed_tools
 
     def _build_command(self, prompt: str, resume_session_id: str | None) -> list[str]:
         command = [self._binary, "-p", prompt, "--output-format", "json"]
         if self._model:
             command += ["--model", self._model]
+        if self._permission_mode:
+            command += ["--permission-mode", self._permission_mode]
+        if self._allowed_tools:
+            command += ["--allowedTools", *self._allowed_tools.split()]
+        if self._workspace_dir:
+            command += ["--add-dir", self._workspace_dir]
         if resume_session_id:
             command += ["--resume", resume_session_id]
         return command
@@ -107,11 +128,17 @@ class CliSubprocessBackend:
         command = self._build_command(prompt, resume_session_id)
         logger.debug("Invoking claude CLI", extra={"resume": resume_session_id, "model": self._model})
 
+        cwd = None
+        if self._workspace_dir:
+            os.makedirs(self._workspace_dir, exist_ok=True)
+            cwd = self._workspace_dir
+
         try:
             process = await asyncio.create_subprocess_exec(
                 *command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                cwd=cwd,
             )
         except FileNotFoundError as exc:
             raise BackendError(f"claude binary not found: {self._binary!r}") from exc
@@ -205,4 +232,7 @@ def build_backend(settings: Settings) -> ClaudeBackend:
         binary=settings.claude_binary,
         timeout_seconds=settings.claude_timeout_seconds,
         model=settings.claude_model,
+        permission_mode=settings.claude_permission_mode,
+        workspace_dir=settings.claude_workspace_dir,
+        allowed_tools=settings.claude_allowed_tools,
     )

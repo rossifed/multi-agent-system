@@ -83,6 +83,24 @@ def test_build_command_omits_optional_flags() -> None:
     command = backend._build_command("hi", resume_session_id=None)
     assert "--model" not in command
     assert "--resume" not in command
+    assert "--permission-mode" not in command
+    assert "--add-dir" not in command
+    assert "--allowedTools" not in command
+
+
+def test_build_command_includes_full_power_flags() -> None:
+    backend = CliSubprocessBackend(
+        binary="claude",
+        permission_mode="bypassPermissions",
+        workspace_dir="/work",
+        allowed_tools="Bash Read Write",
+    )
+    command = backend._build_command("hi", resume_session_id=None)
+    assert "--permission-mode" in command and "bypassPermissions" in command
+    assert "--add-dir" in command and "/work" in command
+    # allowed tools are split into individual args after the flag
+    idx = command.index("--allowedTools")
+    assert command[idx + 1 : idx + 4] == ["Bash", "Read", "Write"]
 
 
 async def test_cli_run_success() -> None:
