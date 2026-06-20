@@ -26,10 +26,16 @@ fi
 cd "$WORKSPACE"
 
 echo "Starting ttyd on port ${PORT} (workspace: ${WORKSPACE}, claude config: ${CONFIG_DIR})"
+# -d 7        : verbose logging (logs client connects + child process spawn/exit)
+# --ping-interval 30 : send WS pings so the Railway proxy doesn't drop an idle
+#                      connection (a likely cause of the reconnect loop)
+# TTYD_DEBUG / TTYD_PING_INTERVAL let us tune these from Railway without a rebuild.
 exec ttyd \
     --port "$PORT" \
     --credential "${TTYD_USERNAME}:${TTYD_PASSWORD}" \
     --writable \
+    --debug "${TTYD_DEBUG:-7}" \
+    --ping-interval "${TTYD_PING_INTERVAL:-30}" \
     --terminal-type xterm-256color \
     -t titleFixed="Claude Cloud Terminal" \
     -t fontSize=14 \
