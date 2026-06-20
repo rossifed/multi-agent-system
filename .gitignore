@@ -21,6 +21,7 @@ dist/
 # Runtime data
 data/
 backend/data/
+web-terminal/.data/
 
 # Session scratch (personal workflow file)
 SESSION.md
