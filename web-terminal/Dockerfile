@@ -23,6 +23,10 @@ RUN curl -fsSL -o /usr/local/bin/ttyd \
 # Claude Code CLI (native installer → /root/.local/bin, no Node.js needed).
 RUN curl -fsSL https://claude.ai/install.sh | bash
 ENV PATH="/root/.local/bin:${PATH}"
+# ttyd launches a *login* shell (`bash -l`), which re-sources /etc/profile and
+# resets PATH — dropping the ENV above. Persist it via /etc/profile.d so the
+# interactive terminal can find `claude`.
+RUN echo 'export PATH="/root/.local/bin:$PATH"' > /etc/profile.d/claude-path.sh
 
 # Disable the in-container auto-updater; persist Claude config + sessions on the volume.
 ENV DISABLE_AUTOUPDATER=1 \
