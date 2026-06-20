@@ -2,7 +2,25 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
+import pytest
 from fastapi.testclient import TestClient
+
+from agent_platform.api.main import create_app
+from agent_platform.config import Settings
+from agent_platform.core.backends import MockBackend
+from agent_platform.core.session_manager import SessionManager
+
+
+@pytest.fixture
+def authed_client() -> Iterator[TestClient]:
+    """A TestClient whose app requires the gateway API key 'secret'."""
+    settings = Settings(backend="mock", gateway_api_key="secret")
+    manager = SessionManager(MockBackend(reply="echo"), None)
+    app = create_app(settings=settings, session_manager=manager)
+    with TestClient(app) as test_client:
+        yield test_client
 
 
 def test_health(client: TestClient) -> None:
@@ -69,3 +87,31 @@ def test_get_outputs_unknown_agent_returns_404(client: TestClient) -> None:
     response = client.get("/agents/ghost/outputs")
     assert response.status_code == 404
     assert response.json()["code"] == "AGENT_NOT_FOUND"
+
+
+# --- API authentication ---
+
+
+def test_health_is_open_without_key(authed_client: TestClient) -> None:
+    assert authed_client.get("/health").status_code == 200
+
+
+def test_protected_route_rejects_missing_key(authed_client: TestClient) -> None:
+    response = authed_client.get("/agents")
+    assert response.status_code == 401
+    assert response.json()["code"] == "UNAUTHORIZED"
+
+
+def test_protected_route_rejects_wrong_key(authed_client: TestClient) -> None:
+    response = authed_client.get("/agents", headers={"X-API-Key": "nope"})
+    assert response.status_code == 401
+
+
+def test_protected_route_accepts_x_api_key(authed_client: TestClient) -> None:
+    response = authed_client.get("/agents", headers={"X-API-Key": "secret"})
+    assert response.status_code == 200
+
+
+def test_protected_route_accepts_bearer_token(authed_client: TestClient) -> None:
+    response = authed_client.get("/agents", headers={"Authorization": "Bearer secret"})
+    assert response.status_code == 200

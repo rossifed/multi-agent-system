@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from agent_platform import __version__
-from agent_platform.api.dependencies import get_session_manager
+from agent_platform.api.dependencies import get_session_manager, require_api_key
 from agent_platform.core.session_manager import SessionManager, SessionNotFoundError
 from agent_platform.models.responses import ApiError, ApiSuccess
 
@@ -23,6 +23,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 ManagerDep = Annotated[SessionManager, Depends(get_session_manager)]
+# Applied to every endpoint except /health to authenticate against the gateway key.
+AuthDep = Depends(require_api_key)
 
 # Maps SessionManager error codes to HTTP status codes.
 _ERROR_STATUS = {
@@ -56,7 +58,7 @@ def health() -> ApiSuccess[dict[str, str]]:
     return ApiSuccess(data={"service": "agent-platform", "version": __version__})
 
 
-@router.post("/agents", status_code=status.HTTP_201_CREATED, tags=["agents"])
+@router.post("/agents", status_code=status.HTTP_201_CREATED, tags=["agents"], dependencies=[AuthDep])
 def create_agent(body: CreateAgentRequest, manager: ManagerDep) -> ApiSuccess[dict[str, object]]:
     """Create a new agent (Claude Code session).
 
@@ -66,13 +68,13 @@ def create_agent(body: CreateAgentRequest, manager: ManagerDep) -> ApiSuccess[di
     return ApiSuccess(data=manager.get_session(agent_id))
 
 
-@router.get("/agents", tags=["agents"])
+@router.get("/agents", tags=["agents"], dependencies=[AuthDep])
 def list_agents(manager: ManagerDep) -> ApiSuccess[dict[str, object]]:
     """List all active agents."""
     return ApiSuccess(data={"agents": manager.list_sessions()})
 
 
-@router.get("/agents/{agent_id}/outputs", tags=["agents"])
+@router.get("/agents/{agent_id}/outputs", tags=["agents"], dependencies=[AuthDep])
 def get_agent_outputs(agent_id: str, manager: ManagerDep) -> JSONResponse:
     """Return the accumulated outputs (interaction history) for an agent."""
     try:
@@ -83,7 +85,7 @@ def get_agent_outputs(agent_id: str, manager: ManagerDep) -> JSONResponse:
     return JSONResponse(status_code=status.HTTP_200_OK, content=body)
 
 
-@router.post("/chat", tags=["chat"])
+@router.post("/chat", tags=["chat"], dependencies=[AuthDep])
 async def chat(body: ChatRequest, manager: ManagerDep) -> JSONResponse:
     """Send a message to an agent and return its response."""
     result = await manager.send_message(body.agent_id, body.message)

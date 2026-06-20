@@ -15,6 +15,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from agent_platform import __version__
 from agent_platform.api.routes import router
@@ -60,6 +61,9 @@ def create_app(
         lifespan=lifespan,
     )
 
+    # API auth secret (None = unauthenticated; a warning is logged per request).
+    app.state.gateway_api_key = settings.gateway_api_key
+
     # Injected manager is available immediately (before lifespan), which tests rely on.
     if session_manager is not None:
         app.state.session_manager = session_manager
@@ -85,6 +89,15 @@ def _register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
             content=ApiError(error=str(exc.errors()), code="VALIDATION_ERROR").model_dump(),
+        )
+
+    @app.exception_handler(StarletteHTTPException)
+    async def _http_handler(_: Request, exc: StarletteHTTPException) -> JSONResponse:
+        code = "UNAUTHORIZED" if exc.status_code == status.HTTP_401_UNAUTHORIZED else "HTTP_ERROR"
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=ApiError(error=str(exc.detail), code=code).model_dump(),
+            headers=exc.headers,
         )
 
     @app.exception_handler(Exception)

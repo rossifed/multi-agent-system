@@ -59,6 +59,17 @@ class Settings(BaseSettings):
         description="JSON file for session persistence. Empty/None disables persistence.",
     )
 
+    # --- API authentication (our own layer, in front of the gateway) ---
+    # Shared secret required on every request (except /health) via either
+    # "Authorization: Bearer <key>" or "X-API-Key: <key>". When unset, the API is
+    # UNAUTHENTICATED (fine for local dev; a loud warning is logged). MUST be set
+    # before exposing the service publicly. A browser fetch() can send this header;
+    # a future WebSocket/streaming layer will use a cookie/query token instead.
+    gateway_api_key: str | None = Field(
+        default=None,
+        description="Shared secret for API auth. Unset = open (dev only).",
+    )
+
     # --- API / server ---
     log_level: str = Field(default="INFO", description="Root logging level.")
     log_json: bool = Field(default=False, description="Emit structured JSON logs when true.")
@@ -91,6 +102,7 @@ class Settings(BaseSettings):
         "claude_allowed_tools",
         "claude_permission_mode",
         "claude_workspace_dir",
+        "gateway_api_key",
         mode="before",
     )
     @classmethod
