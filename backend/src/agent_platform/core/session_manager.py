@@ -229,6 +229,7 @@ class SessionManager:
             self._save()
 
             texts: list[str] = []
+            result_text: str = ""
             usage: dict[str, object] = {}
             errored = False
             try:
@@ -245,13 +246,19 @@ class SessionManager:
                         sid = event.get("session_id")
                         if isinstance(sid, str):
                             agent.claude_session_id = sid
-                        if isinstance(event.get("usage"), dict):
-                            usage = event["usage"]  # type: ignore[assignment]
+                        evt_usage = event.get("usage")
+                        if isinstance(evt_usage, dict):
+                            usage = evt_usage
+                        evt_text = event.get("text")
+                        if isinstance(evt_text, str):
+                            result_text = evt_text
                     elif etype == "error":
                         errored = True
                     yield event
             finally:
-                final_text = "\n".join(t for t in texts if t).strip()
+                # Prefer the final result text (always present); fall back to the
+                # streamed text blocks so a tool-only turn still records a reply.
+                final_text = (result_text or "\n".join(t for t in texts if t)).strip()
                 if final_text:
                     agent.outputs.append(
                         Interaction(role=InteractionRole.AGENT, content=final_text, usage=usage)
