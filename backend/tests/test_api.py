@@ -116,6 +116,20 @@ def test_chat_stream_emits_events_and_persists(client: TestClient) -> None:
     assert "user" in roles and "agent" in roles
 
 
+def test_claude_login_status_returns_bool(client: TestClient) -> None:
+    body = client.get("/health")  # warm
+    assert body.status_code == 200
+    r = client.get("/auth/claude/status")
+    assert r.status_code == 200
+    assert isinstance(r.json()["data"]["logged_in"], bool)
+
+
+def test_claude_login_code_without_start_is_400(client: TestClient) -> None:
+    r = client.post("/auth/claude/code", json={"code": "abc"})
+    assert r.status_code == 400
+    assert r.json()["code"] == "LOGIN_ERROR"
+
+
 def test_resolve_mode_plan_is_readonly_default_is_full() -> None:
     from agent_platform.api.routes import _resolve_mode
 

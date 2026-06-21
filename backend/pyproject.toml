@@ -57,4 +57,4 @@ source = ["agent_platform"]
 branch = true
 # Interactive (PTY) backend drives a real `claude` TUI — validated via integration/
 # manual runs, not unit tests (no PTY/CLI in CI).
-omit = ["*/core/interactive_backend.py"]
+omit = ["*/core/interactive_backend.py", "*/core/claude_login.py"]

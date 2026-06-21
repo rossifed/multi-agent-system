@@ -167,4 +167,13 @@ export const api = {
     request<{ agent_id: string; outputs: Interaction[] }>(
       `/agents/${encodeURIComponent(agentId)}/outputs`,
     ).then((d) => d.outputs),
+
+  // --- Claude login (clean server-side re-login via the browser) ---
+  claudeStatus: () => request<{ logged_in: boolean }>("/auth/claude/status"),
+  claudeLoginStart: () => request<{ url: string }>("/auth/claude/start", { method: "POST" }),
+  claudeLoginCode: (code: string) =>
+    request<{ logged_in: boolean }>("/auth/claude/code", {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    }),
 };

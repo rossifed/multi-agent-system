@@ -7,8 +7,10 @@ envelope and uses proper HTTP status codes. Business logic lives in the
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import os
 from collections.abc import AsyncIterator
 from typing import Annotated, Literal
 
@@ -18,6 +20,7 @@ from pydantic import BaseModel, Field
 
 from agent_platform import __version__
 from agent_platform.api.dependencies import get_session_manager, require_api_key
+from agent_platform.core.claude_login import ClaudeLogin, LoginError
 from agent_platform.core.session_manager import SessionManager, SessionNotFoundError
 from agent_platform.models.agent import AgentConfig
 from agent_platform.models.responses import ApiError, ApiSuccess
@@ -182,3 +185,53 @@ async def chat_stream(body: ChatRequest, manager: ManagerDep) -> StreamingRespon
         media_type="application/x-ndjson",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# --- Claude login (clean server-side re-login via the browser) ---------------
+
+# One login at a time is enough for a single-user gateway.
+_active_login: ClaudeLogin | None = None
+
+
+class ClaudeCodeRequest(BaseModel):
+    """Body carrying the OAuth code pasted back from the browser login."""
+
+    code: str = Field(min_length=1, description="The code shown after signing in.")
+
+
+def _credentials_present() -> bool:
+    config_dir = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+    return os.path.exists(os.path.join(config_dir, ".credentials.json"))
+
+
+@router.get("/auth/claude/status", tags=["auth"], dependencies=[AuthDep])
+def claude_login_status() -> ApiSuccess[dict[str, bool]]:
+    """Report whether claude has full login credentials on this server."""
+    return ApiSuccess(data={"logged_in": _credentials_present()})
+
+
+@router.post("/auth/claude/start", tags=["auth"], dependencies=[AuthDep])
+async def claude_login_start() -> JSONResponse:
+    """Begin a browser login; returns the OAuth URL to open and sign in with."""
+    global _active_login
+    if _active_login is not None:
+        _active_login.close()
+    login = ClaudeLogin()
+    try:
+        url = await asyncio.to_thread(login.start)
+    except LoginError as exc:
+        return _error_response("LOGIN_ERROR", str(exc), status.HTTP_502_BAD_GATEWAY)
+    _active_login = login
+    return JSONResponse(status_code=status.HTTP_200_OK, content=ApiSuccess(data={"url": url}).model_dump())
+
+
+@router.post("/auth/claude/code", tags=["auth"], dependencies=[AuthDep])
+async def claude_login_code(body: ClaudeCodeRequest) -> JSONResponse:
+    """Finish the login by submitting the code pasted from the browser."""
+    global _active_login
+    if _active_login is None:
+        return _error_response("LOGIN_ERROR", "no login in progress", status.HTTP_400_BAD_REQUEST)
+    ok = await asyncio.to_thread(_active_login.submit_code, body.code)
+    _active_login = None
+    body_out = ApiSuccess(data={"logged_in": ok}).model_dump()
+    return JSONResponse(status_code=status.HTTP_200_OK, content=body_out)

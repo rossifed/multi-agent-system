@@ -14,7 +14,7 @@ import {
   type Interaction,
 } from "./api";
 
-const APP_VERSION = "v6 · per-agent engine";
+const APP_VERSION = "v7 · cloud login";
 
 const MODE_HINTS: Record<AgentMode, string> = {
   plan: "propose only, no changes",
@@ -193,12 +193,15 @@ export default function App() {
           </p>
           </div>
         </div>
-        <button
-          onClick={logout}
-          className="shrink-0 rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100"
-        >
-          Sign out
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <ClaudeConnect />
+          <button
+            onClick={logout}
+            className="rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100"
+          >
+            Sign out
+          </button>
+        </div>
       </header>
 
       <div className="flex min-h-0 flex-1">
@@ -399,5 +402,105 @@ function Login({ onSubmit }: { onSubmit: (key: string) => void }) {
         </button>
       </form>
     </div>
+  );
+}
+
+/** Clean server-side Claude login: open the URL in your browser, paste the code. */
+function ClaudeConnect() {
+  const [open, setOpen] = useState(false);
+  const [url, setUrl] = useState("");
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  async function start() {
+    setOpen(true);
+    setMsg(null);
+    setUrl("");
+    setBusy(true);
+    try {
+      setUrl((await api.claudeLoginStart()).url);
+    } catch (err) {
+      setMsg(describe(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submit() {
+    if (!code.trim()) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await api.claudeLoginCode(code.trim());
+      if (r.logged_in) {
+        setMsg("✅ Connected! Interactive agents now work in the cloud.");
+        setUrl("");
+      } else {
+        setMsg("Code rejected — try again.");
+      }
+    } catch (err) {
+      setMsg(describe(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <button
+        onClick={start}
+        className="rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100"
+      >
+        Connect Claude
+      </button>
+      {open && (
+        <div className="fixed inset-0 z-10 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+            <div className="mb-2 flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Connect Claude</h2>
+              <button onClick={() => setOpen(false)} className="text-slate-400 hover:text-slate-700">
+                ✕
+              </button>
+            </div>
+            {busy && !url && <p className="text-sm text-slate-500">Starting login…</p>}
+            {url && (
+              <ol className="space-y-3 text-sm">
+                <li>
+                  <span className="text-slate-600">1. Open this link and sign in:</span>
+                  <a
+                    href={url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-1 block truncate rounded bg-slate-100 px-2 py-1 text-blue-700 underline"
+                  >
+                    {url}
+                  </a>
+                </li>
+                <li>
+                  <span className="text-slate-600">2. Paste the code shown after sign-in:</span>
+                  <div className="mt-1 flex gap-2">
+                    <input
+                      value={code}
+                      onChange={(e) => setCode(e.target.value)}
+                      placeholder="paste code"
+                      className="min-w-0 flex-1 rounded border border-slate-300 px-3 py-2 text-base"
+                    />
+                    <button
+                      onClick={submit}
+                      disabled={busy || !code.trim()}
+                      className="shrink-0 rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+                    >
+                      {busy ? "…" : "Submit"}
+                    </button>
+                  </div>
+                </li>
+              </ol>
+            )}
+            {msg && <p className="mt-3 text-sm text-slate-700">{msg}</p>}
+          </div>
+        </div>
+      )}
+    </>
   );
 }
