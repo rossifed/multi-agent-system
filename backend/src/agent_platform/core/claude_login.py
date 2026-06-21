@@ -105,15 +105,19 @@ class ClaudeLogin:
             if url:
                 return url.group(0)
             screen = self._current_screen()
-            if "text style" in screen or "choose the text" in screen:
+            if "trust this folder" in screen or "safety check" in screen:
+                self._child.send("\r")  # default = "Yes, I trust this folder"
+                self._read(2.0)
+            elif "text style" in screen or "choose the text" in screen:
                 self._child.send("\r")  # accept default theme
                 self._read(2.0)
-            elif "select login method" in screen:
+            elif "select login method" in screen or "login method" in screen:
                 self._child.send("\r")  # default = Claude subscription
                 self._read(2.0)
+        last = self._current_screen().strip()[-600:]
         self.close()
         self._finalize_creds(success=False)  # restore prior creds
-        raise LoginError("timed out waiting for the login URL")
+        raise LoginError(f"timed out waiting for the login URL; last screen: {last!r}")
 
     def submit_code(self, code: str) -> bool:
         """Send the pasted OAuth code; return True once credentials are written."""
