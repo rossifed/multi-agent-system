@@ -23,6 +23,7 @@ class _FailingBackend:
         prompt: str,
         resume_session_id: str | None = None,
         permission_mode: str | None = None,
+        allowed_tools: str | None = None,
     ) -> BackendResult:
         raise self._exc
 

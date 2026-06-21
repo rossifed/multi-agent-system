@@ -128,7 +128,12 @@ class SessionManager:
     # Messaging
     # ------------------------------------------------------------------ #
     async def send_message(
-        self, agent_id: str, message: str, permission_mode: str | None = None
+        self,
+        agent_id: str,
+        message: str,
+        permission_mode: str | None = None,
+        allowed_tools: str | None = None,
+        prompt_override: str | None = None,
     ) -> dict[str, object]:
         """Send a message to an agent and record the response.
 
@@ -137,9 +142,14 @@ class SessionManager:
 
         Args:
             agent_id: Target agent.
-            message: The user prompt.
+            message: The user prompt, as stored in history.
             permission_mode: Optional per-message override of the agent's permission
                 mode (e.g. ``"plan"`` or ``"bypassPermissions"``).
+            allowed_tools: Optional per-message tool allowlist (e.g. read-only tools
+                for a planning turn).
+            prompt_override: When set, this is the actual prompt sent to the backend
+                while ``message`` is what gets recorded in history (lets us add a
+                planning instruction without polluting the visible conversation).
 
         Returns:
             On success: ``{"status": "success", "agent_id", "response",
@@ -163,9 +173,10 @@ class SessionManager:
 
             try:
                 result = await self._backend.run(
-                    message,
+                    prompt_override or message,
                     resume_session_id=agent.claude_session_id,
                     permission_mode=permission_mode,
+                    allowed_tools=allowed_tools,
                 )
             except BackendTimeoutError as exc:
                 return self._fail(agent, "BACKEND_TIMEOUT", str(exc))

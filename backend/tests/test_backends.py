@@ -95,6 +95,13 @@ def test_build_command_per_call_permission_mode_overrides_default() -> None:
     assert command[idx + 1] == "plan"  # per-call override wins over the instance default
 
 
+def test_build_command_per_call_allowed_tools_overrides_default() -> None:
+    backend = CliSubprocessBackend(binary="claude", allowed_tools="Bash Write")
+    command = backend._build_command("hi", resume_session_id=None, allowed_tools="Read Grep")
+    idx = command.index("--allowedTools")
+    assert command[idx + 1 : idx + 3] == ["Read", "Grep"]  # per-call override wins
+
+
 def test_build_command_includes_full_power_flags() -> None:
     backend = CliSubprocessBackend(
         binary="claude",

@@ -89,6 +89,26 @@ def test_get_outputs_unknown_agent_returns_404(client: TestClient) -> None:
     assert response.json()["code"] == "AGENT_NOT_FOUND"
 
 
+def test_chat_plan_mode_prefixes_backend_prompt_but_keeps_history_clean(
+    client: TestClient, mock_backend: MockBackend
+) -> None:
+    agent_id = client.post("/agents", json={"name": "p"}).json()["data"]["id"]
+    client.post("/chat", json={"agent_id": agent_id, "message": "do X", "mode": "plan"})
+
+    # The backend received the planning instruction; history keeps the raw message.
+    sent_prompt = mock_backend.calls[-1][0]
+    assert sent_prompt.startswith("[PLAN MODE") and "do X" in sent_prompt
+    outputs = client.get(f"/agents/{agent_id}/outputs").json()["data"]["outputs"]
+    user_messages = [o["content"] for o in outputs if o["role"] == "user"]
+    assert user_messages[-1] == "do X"
+
+
+def test_chat_rejects_invalid_mode(client: TestClient) -> None:
+    agent_id = client.post("/agents", json={"name": "p"}).json()["data"]["id"]
+    response = client.post("/chat", json={"agent_id": agent_id, "message": "hi", "mode": "turbo"})
+    assert response.status_code == 400
+
+
 # --- API authentication ---
 
 

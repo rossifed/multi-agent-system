@@ -59,6 +59,7 @@ class ClaudeBackend(Protocol):
         prompt: str,
         resume_session_id: str | None = None,
         permission_mode: str | None = None,
+        allowed_tools: str | None = None,
     ) -> BackendResult:
         """Send ``prompt`` to Claude and return the response.
 
@@ -118,16 +119,21 @@ class CliSubprocessBackend:
         self._allowed_tools = allowed_tools
 
     def _build_command(
-        self, prompt: str, resume_session_id: str | None, permission_mode: str | None = None
+        self,
+        prompt: str,
+        resume_session_id: str | None,
+        permission_mode: str | None = None,
+        allowed_tools: str | None = None,
     ) -> list[str]:
         mode = permission_mode or self._permission_mode
+        tools = allowed_tools or self._allowed_tools
         command = [self._binary, "-p", prompt, "--output-format", "json"]
         if self._model:
             command += ["--model", self._model]
         if mode:
             command += ["--permission-mode", mode]
-        if self._allowed_tools:
-            command += ["--allowedTools", *self._allowed_tools.split()]
+        if tools:
+            command += ["--allowedTools", *tools.split()]
         if self._workspace_dir:
             command += ["--add-dir", self._workspace_dir]
         if resume_session_id:
@@ -139,9 +145,10 @@ class CliSubprocessBackend:
         prompt: str,
         resume_session_id: str | None = None,
         permission_mode: str | None = None,
+        allowed_tools: str | None = None,
     ) -> BackendResult:
         """See :meth:`ClaudeBackend.run`."""
-        command = self._build_command(prompt, resume_session_id, permission_mode)
+        command = self._build_command(prompt, resume_session_id, permission_mode, allowed_tools)
         logger.debug("Invoking claude CLI", extra={"resume": resume_session_id, "model": self._model})
 
         cwd = None
@@ -221,6 +228,7 @@ class MockBackend:
         prompt: str,
         resume_session_id: str | None = None,
         permission_mode: str | None = None,
+        allowed_tools: str | None = None,
     ) -> BackendResult:
         """See :meth:`ClaudeBackend.run`. Returns a canned response."""
         self.calls.append((prompt, resume_session_id))

@@ -52,8 +52,15 @@ class ChatRequest(BaseModel):
     )
 
 
-# Product-facing modes → Claude CLI --permission-mode values.
-_PERMISSION_MODE = {"plan": "plan", "auto": "bypassPermissions"}
+# "plan" mode: restrict to read-only tools and prepend a planning instruction so
+# the agent returns a clear plan and changes nothing (using the CLI's own
+# --permission-mode plan instead awaits an interactive approval that our UI can't
+# give). "auto" mode: full execution.
+_PLAN_TOOLS = "Read Grep Glob WebFetch WebSearch"
+_PLAN_INSTRUCTION = (
+    "[PLAN MODE — do NOT make any changes: do not create or edit files and do not "
+    "run commands. Reply ONLY with a short, numbered plan of what you would do.]\n\n"
+)
 
 
 def _error_response(code: str, message: str, http_status: int) -> JSONResponse:
@@ -102,8 +109,22 @@ def get_agent_outputs(agent_id: str, manager: ManagerDep) -> JSONResponse:
 @router.post("/chat", tags=["chat"], dependencies=[AuthDep])
 async def chat(body: ChatRequest, manager: ManagerDep) -> JSONResponse:
     """Send a message to an agent and return its response."""
-    permission_mode = _PERMISSION_MODE.get(body.mode) if body.mode else None
-    result = await manager.send_message(body.agent_id, body.message, permission_mode=permission_mode)
+    permission_mode: str | None = None
+    allowed_tools: str | None = None
+    prompt_override: str | None = None
+    if body.mode == "plan":
+        allowed_tools = _PLAN_TOOLS
+        prompt_override = _PLAN_INSTRUCTION + body.message
+    elif body.mode == "auto":
+        permission_mode = "bypassPermissions"
+
+    result = await manager.send_message(
+        body.agent_id,
+        body.message,
+        permission_mode=permission_mode,
+        allowed_tools=allowed_tools,
+        prompt_override=prompt_override,
+    )
 
     if result.get("status") == "success":
         body_out = ApiSuccess(
