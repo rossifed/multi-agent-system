@@ -46,22 +46,6 @@ class ClaudeLogin:
             os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude"),
             ".credentials.json",
         )
-        self._backup_path = self._creds_path + ".pre-login.bak"
-
-    def _stash_existing_creds(self) -> None:
-        """Move any existing (e.g. inference-only) credentials aside so the login
-        flow actually triggers instead of claude assuming it's already signed in."""
-        if os.path.exists(self._creds_path):
-            os.replace(self._creds_path, self._backup_path)
-
-    def _finalize_creds(self, success: bool) -> None:
-        """Drop the backup on success; restore it if the login didn't complete."""
-        if not os.path.exists(self._backup_path):
-            return
-        if success and os.path.exists(self._creds_path):
-            os.remove(self._backup_path)
-        elif not os.path.exists(self._creds_path):
-            os.replace(self._backup_path, self._creds_path)
 
     def _read(self, duration: float) -> None:
         assert self._child is not None
@@ -84,23 +68,21 @@ class ClaudeLogin:
         return _ANSI.sub("", self._raw)
 
     def start(self) -> str:
-        """Spawn claude, clear onboarding, and return the OAuth URL to open."""
-        # Force a fresh login by hiding any inference token so claude prompts to log in.
-        env = dict(os.environ)
-        env.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
-        env.pop("ANTHROPIC_API_KEY", None)
-        self._stash_existing_creds()  # so the login flow actually triggers
-        # Very wide terminal so the long OAuth URL is printed on a single line
-        # (no wrap), letting us capture it whole from the raw stream.
+        """Spawn claude and return the OAuth URL to open.
+
+        Works whether claude is already signed in or not: if it lands on the main
+        prompt (already authed via token/creds) we send ``/login`` to force a real
+        re-login; if it's a fresh session we step through the onboarding. Either
+        path ends at the OAuth URL.
+        """
+        # Very wide terminal so the long OAuth URL prints on a single line (no wrap).
         self._child = pexpect.spawn(
-            self._binary, env=env, encoding="utf-8", dimensions=(50, 4000), timeout=self._timeout
+            self._binary, encoding="utf-8", dimensions=(50, 4000), timeout=self._timeout
         )
         deadline = time.time() + self._timeout
+        login_sent = False
         while time.time() < deadline:
             self._read(1.5)
-            # The URL is captured from the raw (contiguous) buffer; navigation
-            # decisions use the *current* rendered screen so we don't re-answer a
-            # screen we already passed.
             url = _URL.search(self._clean())
             if url:
                 return url.group(0)
@@ -111,38 +93,52 @@ class ClaudeLogin:
             elif "text style" in screen or "choose the text" in screen:
                 self._child.send("\r")  # accept default theme
                 self._read(2.0)
-            elif "select login method" in screen or "login method" in screen:
+            elif "login method" in screen:
                 self._child.send("\r")  # default = Claude subscription
+                self._read(2.0)
+            elif not login_sent and ("for shortcuts" in screen or "for agents" in screen):
+                # Already signed in → force a real re-login from the main prompt.
+                self._child.send("/login")
+                time.sleep(0.3)
+                self._child.send("\r")
+                login_sent = True
                 self._read(2.0)
         last = self._current_screen().strip()[-600:]
         self.close()
-        self._finalize_creds(success=False)  # restore prior creds
         raise LoginError(f"timed out waiting for the login URL; last screen: {last!r}")
 
+    def _creds_mtime(self) -> float:
+        try:
+            return os.path.getmtime(self._creds_path)
+        except OSError:
+            return 0.0
+
     def submit_code(self, code: str) -> bool:
-        """Send the pasted OAuth code; return True once credentials are written."""
+        """Send the pasted OAuth code; return True once the login succeeds.
+
+        Success = the credentials file is (re)written or the UI confirms login;
+        failure = an 'invalid'/'error' message. (The creds file usually already
+        exists, so we watch its mtime, not just its presence.)
+        """
         if self._child is None:
             raise LoginError("login not started")
-        creds = self._creds_path
+        before_mtime = self._creds_mtime()
         self._child.send(code.strip())
         time.sleep(0.3)
         self._child.send("\r")
-        deadline = time.time() + 45
+        deadline = time.time() + 60
         while time.time() < deadline:
             self._read(1.0)
-            if os.path.exists(creds):
-                time.sleep(1.0)  # let the file finish writing
+            recent = self._clean().lower()[-600:]
+            if self._creds_mtime() > before_mtime or "login successful" in recent or "logged in" in recent:
+                time.sleep(1.0)
                 self.close()
-                self._finalize_creds(success=True)
                 return True
-            if "invalid" in self._clean().lower()[-400:]:
+            if "invalid" in recent or "error" in recent or "failed" in recent:
                 self.close()
-                self._finalize_creds(success=False)
                 return False
         self.close()
-        ok = os.path.exists(creds)
-        self._finalize_creds(success=ok)
-        return ok
+        return self._creds_mtime() > before_mtime
 
     def close(self) -> None:
         if self._child is None:
