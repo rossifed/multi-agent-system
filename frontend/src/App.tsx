@@ -118,23 +118,36 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen flex-col bg-slate-100 text-slate-900">
-      <header className="flex items-center justify-between border-b border-slate-300 bg-white px-6 py-4">
-        <div>
-          <h1 className="text-xl font-semibold">Agent Platform</h1>
-          <p className="text-sm text-slate-500">Claude Code session gateway</p>
+    <div className="flex h-[100dvh] flex-col bg-slate-100 text-slate-900">
+      <header className="flex items-center justify-between gap-2 border-b border-slate-300 bg-white px-4 py-3 md:px-6 md:py-4">
+        <div className="flex min-w-0 items-center gap-1">
+          {selectedId && (
+            <button
+              onClick={() => setSelectedId(null)}
+              aria-label="Back to agents"
+              className="-ml-1 rounded p-2 text-lg leading-none text-slate-600 hover:bg-slate-100 md:hidden"
+            >
+              ←
+            </button>
+          )}
+          <div className="min-w-0">
+            <h1 className="truncate text-lg font-semibold md:text-xl">Agent Platform</h1>
+            <p className="hidden text-sm text-slate-500 sm:block">Claude Code session gateway</p>
+          </div>
         </div>
         <button
           onClick={logout}
-          className="rounded border border-slate-300 px-3 py-1 text-sm text-slate-600 hover:bg-slate-100"
+          className="shrink-0 rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100"
         >
           Sign out
         </button>
       </header>
 
       <div className="flex min-h-0 flex-1">
-        {/* Sidebar: create + agent list */}
-        <aside className="flex w-72 flex-col border-r border-slate-300 bg-white">
+        {/* Sidebar: create + agent list. Full-width on mobile, hidden once a chat is open. */}
+        <aside
+          className={`${selectedId ? "hidden md:flex" : "flex"} w-full flex-col border-r border-slate-300 bg-white md:w-72`}
+        >
           <form onSubmit={handleCreateAgent} className="border-b border-slate-200 p-4">
             <label className="mb-1 block text-xs font-medium uppercase text-slate-500">
               New agent
@@ -144,11 +157,11 @@ export default function App() {
                 value={newAgentName}
                 onChange={(e) => setNewAgentName(e.target.value)}
                 placeholder="e.g. architect"
-                className="min-w-0 flex-1 rounded border border-slate-300 px-2 py-1 text-sm"
+                className="min-w-0 flex-1 rounded border border-slate-300 px-3 py-2 text-base md:text-sm"
               />
               <button
                 type="submit"
-                className="rounded bg-slate-900 px-3 py-1 text-sm font-medium text-white hover:bg-slate-700"
+                className="shrink-0 rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
               >
                 Add
               </button>
@@ -156,14 +169,12 @@ export default function App() {
           </form>
 
           <ul className="flex-1 overflow-y-auto">
-            {agents.length === 0 && (
-              <li className="p-4 text-sm text-slate-400">No agents yet.</li>
-            )}
+            {agents.length === 0 && <li className="p-4 text-sm text-slate-400">No agents yet.</li>}
             {agents.map((agent) => (
               <li key={agent.id}>
                 <button
                   onClick={() => setSelectedId(agent.id)}
-                  className={`flex w-full flex-col items-start border-b border-slate-100 px-4 py-3 text-left hover:bg-slate-50 ${
+                  className={`flex w-full flex-col items-start border-b border-slate-100 px-4 py-4 text-left hover:bg-slate-50 md:py-3 ${
                     selectedId === agent.id ? "bg-slate-100" : ""
                   }`}
                 >
@@ -177,59 +188,64 @@ export default function App() {
           </ul>
         </aside>
 
-        {/* Main: conversation */}
-        <main className="flex min-w-0 flex-1 flex-col">
+        {/* Main: conversation. Hidden on mobile until an agent is selected. */}
+        <main
+          className={`${selectedId ? "flex" : "hidden md:flex"} min-w-0 flex-1 flex-col`}
+        >
           {error && (
-            <div className="border-b border-red-200 bg-red-50 px-6 py-2 text-sm text-red-700">
+            <div className="border-b border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 md:px-6">
               {error}
             </div>
           )}
 
           {!selectedId ? (
-            <div className="flex flex-1 items-center justify-center text-slate-400">
+            <div className="flex flex-1 items-center justify-center p-6 text-center text-slate-400">
               Select or create an agent to start chatting.
             </div>
           ) : (
             <>
-              <div className="flex-1 space-y-3 overflow-y-auto p-6">
+              <div className="flex-1 space-y-3 overflow-y-auto p-4 md:p-6">
                 {outputs.length === 0 && (
                   <p className="text-sm text-slate-400">No messages yet. Say hello below.</p>
                 )}
                 {outputs.map((item) => (
                   <div
                     key={item.id}
-                    className={`max-w-2xl rounded-lg px-4 py-2 text-sm ${
+                    className={`max-w-[85%] rounded-lg px-4 py-2 text-sm md:max-w-2xl ${
                       item.role === "user"
                         ? "ml-auto bg-slate-900 text-white"
                         : "mr-auto bg-white text-slate-900 shadow"
                     }`}
                   >
                     <div className="mb-1 text-xs uppercase opacity-60">{item.role}</div>
-                    <div className="whitespace-pre-wrap">{item.content}</div>
+                    <div className="whitespace-pre-wrap break-words">{item.content}</div>
                   </div>
                 ))}
                 {busy && (
-                  <div className="mr-auto max-w-2xl rounded-lg bg-white px-4 py-2 text-sm text-slate-400 shadow">
+                  <div className="mr-auto max-w-[85%] rounded-lg bg-white px-4 py-2 text-sm text-slate-400 shadow md:max-w-2xl">
                     <div className="mb-1 text-xs uppercase opacity-60">agent</div>
                     <div className="animate-pulse">…thinking</div>
                   </div>
                 )}
               </div>
 
-              <form onSubmit={handleSend} className="flex gap-2 border-t border-slate-300 bg-white p-4">
+              <form
+                onSubmit={handleSend}
+                className="flex gap-2 border-t border-slate-300 bg-white p-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] md:p-4"
+              >
                 <input
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
                   placeholder="Message the agent…"
                   disabled={busy}
-                  className="flex-1 rounded border border-slate-300 px-3 py-2 text-sm disabled:opacity-50"
+                  className="min-w-0 flex-1 rounded border border-slate-300 px-3 py-2.5 text-base disabled:opacity-50"
                 />
                 <button
                   type="submit"
                   disabled={busy || !message.trim()}
-                  className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+                  className="shrink-0 rounded bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
                 >
-                  {busy ? "Sending…" : "Send"}
+                  {busy ? "…" : "Send"}
                 </button>
               </form>
             </>
@@ -250,13 +266,13 @@ function describe(err: unknown): string {
 function Login({ onSubmit }: { onSubmit: (key: string) => void }) {
   const [value, setValue] = useState("");
   return (
-    <div className="flex h-screen items-center justify-center bg-slate-100">
+    <div className="flex h-[100dvh] items-center justify-center bg-slate-100 p-4">
       <form
         onSubmit={(e) => {
           e.preventDefault();
           if (value.trim()) onSubmit(value.trim());
         }}
-        className="w-80 rounded-lg bg-white p-6 shadow"
+        className="w-full max-w-sm rounded-lg bg-white p-6 shadow"
       >
         <h1 className="text-lg font-semibold text-slate-900">Agent Platform</h1>
         <p className="mb-4 text-sm text-slate-500">Enter your API key to continue.</p>
@@ -266,7 +282,9 @@ function Login({ onSubmit }: { onSubmit: (key: string) => void }) {
           onChange={(e) => setValue(e.target.value)}
           placeholder="API key"
           autoFocus
-          className="mb-3 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+          autoCapitalize="off"
+          autoCorrect="off"
+          className="mb-3 w-full rounded border border-slate-300 px-3 py-2.5 text-base"
         />
         <button
           type="submit"
