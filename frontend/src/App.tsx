@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { ApiError, api, type Agent, type Interaction } from "./api";
+import { ApiError, api, clearApiKey, getApiKey, setApiKey, type Agent, type Interaction } from "./api";
 
 export default function App() {
+  const [apiKey, setKey] = useState(getApiKey());
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [outputs, setOutputs] = useState<Interaction[]>([]);
@@ -11,30 +12,67 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const logout = useCallback(() => {
+    clearApiKey();
+    setKey("");
+    setAgents([]);
+    setSelectedId(null);
+    setOutputs([]);
+  }, []);
+
+  // Centralised error handling: a bad/expired key sends the user back to login.
+  const handleError = useCallback(
+    (err: unknown) => {
+      if (err instanceof ApiError && err.code === "UNAUTHORIZED") {
+        logout();
+        setError("Invalid API key — please sign in again.");
+      } else {
+        setError(describe(err));
+      }
+    },
+    [logout],
+  );
+
   const refreshAgents = useCallback(async () => {
     try {
       setAgents(await api.listAgents());
     } catch (err) {
-      setError(describe(err));
+      handleError(err);
     }
-  }, []);
+  }, [handleError]);
 
-  const refreshOutputs = useCallback(async (agentId: string) => {
-    try {
-      setOutputs(await api.getOutputs(agentId));
-    } catch (err) {
-      setError(describe(err));
-    }
-  }, []);
+  const refreshOutputs = useCallback(
+    async (agentId: string) => {
+      try {
+        setOutputs(await api.getOutputs(agentId));
+      } catch (err) {
+        handleError(err);
+      }
+    },
+    [handleError],
+  );
 
   useEffect(() => {
-    void refreshAgents();
-  }, [refreshAgents]);
+    if (apiKey) void refreshAgents();
+  }, [apiKey, refreshAgents]);
 
   useEffect(() => {
     if (selectedId) void refreshOutputs(selectedId);
     else setOutputs([]);
   }, [selectedId, refreshOutputs]);
+
+  // Login gate — after all hooks, so hook order stays stable across renders.
+  if (!apiKey) {
+    return (
+      <Login
+        onSubmit={(k) => {
+          setApiKey(k);
+          setKey(getApiKey());
+          setError(null);
+        }}
+      />
+    );
+  }
 
   async function handleCreateAgent(event: React.FormEvent) {
     event.preventDefault();
@@ -46,7 +84,7 @@ export default function App() {
       await refreshAgents();
       setSelectedId(agent.id);
     } catch (err) {
-      setError(describe(err));
+      handleError(err);
     }
   }
 
@@ -72,7 +110,7 @@ export default function App() {
       await refreshOutputs(selectedId); // replace optimistic copy with server truth
       await refreshAgents();
     } catch (err) {
-      setError(describe(err));
+      handleError(err);
       await refreshOutputs(selectedId);
     } finally {
       setBusy(false);
@@ -81,9 +119,17 @@ export default function App() {
 
   return (
     <div className="flex h-screen flex-col bg-slate-100 text-slate-900">
-      <header className="border-b border-slate-300 bg-white px-6 py-4">
-        <h1 className="text-xl font-semibold">Agent Platform</h1>
-        <p className="text-sm text-slate-500">Phase 0 — Claude Code session gateway</p>
+      <header className="flex items-center justify-between border-b border-slate-300 bg-white px-6 py-4">
+        <div>
+          <h1 className="text-xl font-semibold">Agent Platform</h1>
+          <p className="text-sm text-slate-500">Claude Code session gateway</p>
+        </div>
+        <button
+          onClick={logout}
+          className="rounded border border-slate-300 px-3 py-1 text-sm text-slate-600 hover:bg-slate-100"
+        >
+          Sign out
+        </button>
       </header>
 
       <div className="flex min-h-0 flex-1">
@@ -198,4 +244,38 @@ function describe(err: unknown): string {
   if (err instanceof ApiError) return `${err.code}: ${err.message}`;
   if (err instanceof Error) return err.message;
   return "Unknown error";
+}
+
+/** Sign-in screen: enter the gateway API key. */
+function Login({ onSubmit }: { onSubmit: (key: string) => void }) {
+  const [value, setValue] = useState("");
+  return (
+    <div className="flex h-screen items-center justify-center bg-slate-100">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (value.trim()) onSubmit(value.trim());
+        }}
+        className="w-80 rounded-lg bg-white p-6 shadow"
+      >
+        <h1 className="text-lg font-semibold text-slate-900">Agent Platform</h1>
+        <p className="mb-4 text-sm text-slate-500">Enter your API key to continue.</p>
+        <input
+          type="password"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="API key"
+          autoFocus
+          className="mb-3 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+        />
+        <button
+          type="submit"
+          disabled={!value.trim()}
+          className="w-full rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+        >
+          Sign in
+        </button>
+      </form>
+    </div>
+  );
 }

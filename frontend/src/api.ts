@@ -7,6 +7,23 @@
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://localhost:8000";
 
+// --- API key (our gateway auth) -------------------------------------------
+// Stored in localStorage and sent as X-API-Key on every request. The backend
+// requires it (except /health). A 401 clears it so the UI returns to login.
+const KEY_STORAGE = "agent_api_key";
+
+export function getApiKey(): string {
+  return localStorage.getItem(KEY_STORAGE) ?? "";
+}
+
+export function setApiKey(key: string): void {
+  localStorage.setItem(KEY_STORAGE, key.trim());
+}
+
+export function clearApiKey(): void {
+  localStorage.removeItem(KEY_STORAGE);
+}
+
 export interface Agent {
   id: string;
   name: string;
@@ -58,8 +75,8 @@ export class ApiError extends Error {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: { "Content-Type": "application/json" },
     ...init,
+    headers: { "Content-Type": "application/json", "X-API-Key": getApiKey(), ...init?.headers },
   });
   const body = (await response.json()) as SuccessEnvelope<T> | ErrorEnvelope;
   if (body.status === "error") {
