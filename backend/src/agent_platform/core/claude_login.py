@@ -42,6 +42,26 @@ class ClaudeLogin:
         self._raw = ""
         self._screen = pyte.Screen(4000, 50)
         self._stream = pyte.Stream(self._screen)
+        self._creds_path = os.path.join(
+            os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude"),
+            ".credentials.json",
+        )
+        self._backup_path = self._creds_path + ".pre-login.bak"
+
+    def _stash_existing_creds(self) -> None:
+        """Move any existing (e.g. inference-only) credentials aside so the login
+        flow actually triggers instead of claude assuming it's already signed in."""
+        if os.path.exists(self._creds_path):
+            os.replace(self._creds_path, self._backup_path)
+
+    def _finalize_creds(self, success: bool) -> None:
+        """Drop the backup on success; restore it if the login didn't complete."""
+        if not os.path.exists(self._backup_path):
+            return
+        if success and os.path.exists(self._creds_path):
+            os.remove(self._backup_path)
+        elif not os.path.exists(self._creds_path):
+            os.replace(self._backup_path, self._creds_path)
 
     def _read(self, duration: float) -> None:
         assert self._child is not None
@@ -69,6 +89,7 @@ class ClaudeLogin:
         env = dict(os.environ)
         env.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
         env.pop("ANTHROPIC_API_KEY", None)
+        self._stash_existing_creds()  # so the login flow actually triggers
         # Very wide terminal so the long OAuth URL is printed on a single line
         # (no wrap), letting us capture it whole from the raw stream.
         self._child = pexpect.spawn(
@@ -91,14 +112,14 @@ class ClaudeLogin:
                 self._child.send("\r")  # default = Claude subscription
                 self._read(2.0)
         self.close()
+        self._finalize_creds(success=False)  # restore prior creds
         raise LoginError("timed out waiting for the login URL")
 
     def submit_code(self, code: str) -> bool:
         """Send the pasted OAuth code; return True once credentials are written."""
         if self._child is None:
             raise LoginError("login not started")
-        config_dir = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
-        creds = os.path.join(config_dir, ".credentials.json")
+        creds = self._creds_path
         self._child.send(code.strip())
         time.sleep(0.3)
         self._child.send("\r")
@@ -108,12 +129,16 @@ class ClaudeLogin:
             if os.path.exists(creds):
                 time.sleep(1.0)  # let the file finish writing
                 self.close()
+                self._finalize_creds(success=True)
                 return True
             if "invalid" in self._clean().lower()[-400:]:
                 self.close()
+                self._finalize_creds(success=False)
                 return False
         self.close()
-        return os.path.exists(creds)
+        ok = os.path.exists(creds)
+        self._finalize_creds(success=ok)
+        return ok
 
     def close(self) -> None:
         if self._child is None:
