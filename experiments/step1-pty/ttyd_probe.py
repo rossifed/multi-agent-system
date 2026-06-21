@@ -7,12 +7,16 @@ If the child exits immediately, the WS closes right away (= the reconnect loop).
 
 import base64
 import json
+import os
 import time
 
 import websocket
 
-URL = "ws://localhost:7682/ws"
-USER, PASS = "a", "b"
+# Point at the live Railway endpoint via env, e.g.:
+#   TTYD_URL=wss://xxxx.up.railway.app/ws TTYD_USER=fred TTYD_PASS=... python ttyd_probe.py
+URL = os.environ.get("TTYD_URL", "ws://localhost:7682/ws")
+USER = os.environ.get("TTYD_USER", "a")
+PASS = os.environ.get("TTYD_PASS", "b")
 
 
 def main() -> None:
