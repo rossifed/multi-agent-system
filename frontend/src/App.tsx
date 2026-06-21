@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { ApiError, api, clearApiKey, getApiKey, setApiKey, type Agent, type Interaction } from "./api";
+import {
+  ApiError,
+  api,
+  clearApiKey,
+  getApiKey,
+  setApiKey,
+  type Agent,
+  type AgentMode,
+  type Interaction,
+} from "./api";
 
 export default function App() {
   const [apiKey, setKey] = useState(getApiKey());
@@ -9,6 +18,7 @@ export default function App() {
   const [outputs, setOutputs] = useState<Interaction[]>([]);
   const [newAgentName, setNewAgentName] = useState("");
   const [message, setMessage] = useState("");
+  const [mode, setMode] = useState<AgentMode>("auto");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -106,7 +116,7 @@ export default function App() {
     setBusy(true);
     setError(null);
     try {
-      await api.chat(selectedId, text);
+      await api.chat(selectedId, text, mode);
       await refreshOutputs(selectedId); // replace optimistic copy with server truth
       await refreshAgents();
     } catch (err) {
@@ -231,22 +241,44 @@ export default function App() {
 
               <form
                 onSubmit={handleSend}
-                className="flex gap-2 border-t border-slate-300 bg-white p-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] md:p-4"
+                className="flex flex-col gap-2 border-t border-slate-300 bg-white p-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] md:p-4"
               >
-                <input
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  placeholder="Message the agent…"
-                  disabled={busy}
-                  className="min-w-0 flex-1 rounded border border-slate-300 px-3 py-2.5 text-base disabled:opacity-50"
-                />
-                <button
-                  type="submit"
-                  disabled={busy || !message.trim()}
-                  className="shrink-0 rounded bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
-                >
-                  {busy ? "…" : "Send"}
-                </button>
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="text-slate-400">Mode</span>
+                  <div className="inline-flex overflow-hidden rounded border border-slate-300">
+                    {(["plan", "auto"] as AgentMode[]).map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => setMode(m)}
+                        className={`px-3 py-1 font-medium capitalize ${
+                          mode === m ? "bg-slate-900 text-white" : "bg-white text-slate-600 hover:bg-slate-50"
+                        }`}
+                      >
+                        {m}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="text-slate-400">
+                    {mode === "plan" ? "propose only, no changes" : "full execution"}
+                  </span>
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    placeholder={mode === "plan" ? "Ask for a plan…" : "Message the agent…"}
+                    disabled={busy}
+                    className="min-w-0 flex-1 rounded border border-slate-300 px-3 py-2.5 text-base disabled:opacity-50"
+                  />
+                  <button
+                    type="submit"
+                    disabled={busy || !message.trim()}
+                    className="shrink-0 rounded bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+                  >
+                    {busy ? "…" : "Send"}
+                  </button>
+                </div>
               </form>
             </>
           )}

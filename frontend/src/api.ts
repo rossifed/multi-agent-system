@@ -24,6 +24,9 @@ export function clearApiKey(): void {
   localStorage.removeItem(KEY_STORAGE);
 }
 
+/** Per-message agent mode: "plan" proposes only; "auto" executes fully. */
+export type AgentMode = "plan" | "auto";
+
 export interface Agent {
   id: string;
   name: string;
@@ -91,10 +94,10 @@ export const api = {
   createAgent: (name: string) =>
     request<Agent>("/agents", { method: "POST", body: JSON.stringify({ name }) }),
 
-  chat: (agentId: string, message: string) =>
+  chat: (agentId: string, message: string, mode?: AgentMode) =>
     request<ChatResult>("/chat", {
       method: "POST",
-      body: JSON.stringify({ agent_id: agentId, message }),
+      body: JSON.stringify({ agent_id: agentId, message, mode }),
     }),
 
   getOutputs: (agentId: string) =>

@@ -8,7 +8,7 @@ envelope and uses proper HTTP status codes. Business logic lives in the
 from __future__ import annotations
 
 import logging
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse
@@ -45,6 +45,15 @@ class ChatRequest(BaseModel):
 
     agent_id: str = Field(min_length=1, description="Target agent id.")
     message: str = Field(min_length=1, description="The prompt to send to the agent.")
+    mode: Literal["plan", "auto"] | None = Field(
+        default=None,
+        description="Per-message agent mode: 'plan' (propose only, no changes) or "
+        "'auto' (full execution). Omit to use the server default.",
+    )
+
+
+# Product-facing modes → Claude CLI --permission-mode values.
+_PERMISSION_MODE = {"plan": "plan", "auto": "bypassPermissions"}
 
 
 def _error_response(code: str, message: str, http_status: int) -> JSONResponse:
@@ -93,7 +102,8 @@ def get_agent_outputs(agent_id: str, manager: ManagerDep) -> JSONResponse:
 @router.post("/chat", tags=["chat"], dependencies=[AuthDep])
 async def chat(body: ChatRequest, manager: ManagerDep) -> JSONResponse:
     """Send a message to an agent and return its response."""
-    result = await manager.send_message(body.agent_id, body.message)
+    permission_mode = _PERMISSION_MODE.get(body.mode) if body.mode else None
+    result = await manager.send_message(body.agent_id, body.message, permission_mode=permission_mode)
 
     if result.get("status") == "success":
         body_out = ApiSuccess(

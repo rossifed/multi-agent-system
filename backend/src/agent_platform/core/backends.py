@@ -54,13 +54,21 @@ class BackendResult:
 class ClaudeBackend(Protocol):
     """Protocol implemented by every Claude backend."""
 
-    async def run(self, prompt: str, resume_session_id: str | None = None) -> BackendResult:
+    async def run(
+        self,
+        prompt: str,
+        resume_session_id: str | None = None,
+        permission_mode: str | None = None,
+    ) -> BackendResult:
         """Send ``prompt`` to Claude and return the response.
 
         Args:
             prompt: The user message to send.
             resume_session_id: When provided, resume that session so prior context
                 is available; otherwise start a fresh session.
+            permission_mode: Per-call override of the agent's permission mode (e.g.
+                ``"plan"`` to plan without acting, ``"bypassPermissions"`` for full
+                execution). When ``None``, the backend's configured default is used.
 
         Returns:
             The parsed :class:`BackendResult`.
@@ -109,12 +117,15 @@ class CliSubprocessBackend:
         self._workspace_dir = workspace_dir
         self._allowed_tools = allowed_tools
 
-    def _build_command(self, prompt: str, resume_session_id: str | None) -> list[str]:
+    def _build_command(
+        self, prompt: str, resume_session_id: str | None, permission_mode: str | None = None
+    ) -> list[str]:
+        mode = permission_mode or self._permission_mode
         command = [self._binary, "-p", prompt, "--output-format", "json"]
         if self._model:
             command += ["--model", self._model]
-        if self._permission_mode:
-            command += ["--permission-mode", self._permission_mode]
+        if mode:
+            command += ["--permission-mode", mode]
         if self._allowed_tools:
             command += ["--allowedTools", *self._allowed_tools.split()]
         if self._workspace_dir:
@@ -123,9 +134,14 @@ class CliSubprocessBackend:
             command += ["--resume", resume_session_id]
         return command
 
-    async def run(self, prompt: str, resume_session_id: str | None = None) -> BackendResult:
+    async def run(
+        self,
+        prompt: str,
+        resume_session_id: str | None = None,
+        permission_mode: str | None = None,
+    ) -> BackendResult:
         """See :meth:`ClaudeBackend.run`."""
-        command = self._build_command(prompt, resume_session_id)
+        command = self._build_command(prompt, resume_session_id, permission_mode)
         logger.debug("Invoking claude CLI", extra={"resume": resume_session_id, "model": self._model})
 
         cwd = None
@@ -200,7 +216,12 @@ class MockBackend:
         self._counter = 0
         self.calls: list[tuple[str, str | None]] = []
 
-    async def run(self, prompt: str, resume_session_id: str | None = None) -> BackendResult:
+    async def run(
+        self,
+        prompt: str,
+        resume_session_id: str | None = None,
+        permission_mode: str | None = None,
+    ) -> BackendResult:
         """See :meth:`ClaudeBackend.run`. Returns a canned response."""
         self.calls.append((prompt, resume_session_id))
         # Keep an existing session id stable across turns; mint one on first use.

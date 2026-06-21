@@ -18,7 +18,12 @@ class _FailingBackend:
     def __init__(self, exc: Exception) -> None:
         self._exc = exc
 
-    async def run(self, prompt: str, resume_session_id: str | None = None) -> BackendResult:
+    async def run(
+        self,
+        prompt: str,
+        resume_session_id: str | None = None,
+        permission_mode: str | None = None,
+    ) -> BackendResult:
         raise self._exc
 
 

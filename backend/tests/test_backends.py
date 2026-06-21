@@ -88,6 +88,13 @@ def test_build_command_omits_optional_flags() -> None:
     assert "--allowedTools" not in command
 
 
+def test_build_command_per_call_permission_mode_overrides_default() -> None:
+    backend = CliSubprocessBackend(binary="claude", permission_mode="bypassPermissions")
+    command = backend._build_command("hi", resume_session_id=None, permission_mode="plan")
+    idx = command.index("--permission-mode")
+    assert command[idx + 1] == "plan"  # per-call override wins over the instance default
+
+
 def test_build_command_includes_full_power_flags() -> None:
     backend = CliSubprocessBackend(
         binary="claude",

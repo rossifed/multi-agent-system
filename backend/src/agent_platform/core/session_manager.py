@@ -127,7 +127,9 @@ class SessionManager:
     # ------------------------------------------------------------------ #
     # Messaging
     # ------------------------------------------------------------------ #
-    async def send_message(self, agent_id: str, message: str) -> dict[str, object]:
+    async def send_message(
+        self, agent_id: str, message: str, permission_mode: str | None = None
+    ) -> dict[str, object]:
         """Send a message to an agent and record the response.
 
         Returns a result envelope rather than raising, so callers get a uniform
@@ -136,6 +138,8 @@ class SessionManager:
         Args:
             agent_id: Target agent.
             message: The user prompt.
+            permission_mode: Optional per-message override of the agent's permission
+                mode (e.g. ``"plan"`` or ``"bypassPermissions"``).
 
         Returns:
             On success: ``{"status": "success", "agent_id", "response",
@@ -158,7 +162,11 @@ class SessionManager:
             agent.touch()
 
             try:
-                result = await self._backend.run(message, resume_session_id=agent.claude_session_id)
+                result = await self._backend.run(
+                    message,
+                    resume_session_id=agent.claude_session_id,
+                    permission_mode=permission_mode,
+                )
             except BackendTimeoutError as exc:
                 return self._fail(agent, "BACKEND_TIMEOUT", str(exc))
             except BackendError as exc:
