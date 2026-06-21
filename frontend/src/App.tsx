@@ -9,11 +9,12 @@ import {
   getApiKey,
   setApiKey,
   type Agent,
+  type AgentEngine,
   type AgentMode,
   type Interaction,
 } from "./api";
 
-const APP_VERSION = "v5 · markdown";
+const APP_VERSION = "v6 · per-agent engine";
 
 const MODE_HINTS: Record<AgentMode, string> = {
   plan: "propose only, no changes",
@@ -26,6 +27,8 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [outputs, setOutputs] = useState<Interaction[]>([]);
   const [newAgentName, setNewAgentName] = useState("");
+  const [newAgentEngine, setNewAgentEngine] = useState<AgentEngine>("interactive");
+  const [newAgentModel, setNewAgentModel] = useState("");
   const [message, setMessage] = useState("");
   const [mode, setMode] = useState<AgentMode>("default");
   const [busy, setBusy] = useState(false);
@@ -99,8 +102,12 @@ export default function App() {
     if (!newAgentName.trim()) return;
     setError(null);
     try {
-      const agent = await api.createAgent(newAgentName.trim());
+      const agent = await api.createAgent(newAgentName.trim(), {
+        engine: newAgentEngine,
+        model: newAgentModel.trim() || undefined,
+      });
       setNewAgentName("");
+      setNewAgentModel("");
       await refreshAgents();
       setSelectedId(agent.id);
     } catch (err) {
@@ -199,24 +206,34 @@ export default function App() {
         <aside
           className={`${selectedId ? "hidden md:flex" : "flex"} w-full flex-col border-r border-slate-300 bg-white md:w-72`}
         >
-          <form onSubmit={handleCreateAgent} className="border-b border-slate-200 p-4">
-            <label className="mb-1 block text-xs font-medium uppercase text-slate-500">
-              New agent
-            </label>
-            <div className="flex gap-2">
-              <input
-                value={newAgentName}
-                onChange={(e) => setNewAgentName(e.target.value)}
-                placeholder="e.g. architect"
-                className="min-w-0 flex-1 rounded border border-slate-300 px-3 py-2 text-base md:text-sm"
-              />
-              <button
-                type="submit"
-                className="shrink-0 rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
-              >
-                Add
-              </button>
-            </div>
+          <form onSubmit={handleCreateAgent} className="space-y-2 border-b border-slate-200 p-4">
+            <label className="block text-xs font-medium uppercase text-slate-500">New agent</label>
+            <input
+              value={newAgentName}
+              onChange={(e) => setNewAgentName(e.target.value)}
+              placeholder="name (e.g. architect)"
+              className="w-full rounded border border-slate-300 px-3 py-2 text-base md:text-sm"
+            />
+            <select
+              value={newAgentEngine}
+              onChange={(e) => setNewAgentEngine(e.target.value as AgentEngine)}
+              className="w-full rounded border border-slate-300 px-3 py-2 text-base md:text-sm"
+            >
+              <option value="interactive">Interactive — live TUI (like terminal)</option>
+              <option value="headless">Headless — “-p” (streams tools)</option>
+            </select>
+            <input
+              value={newAgentModel}
+              onChange={(e) => setNewAgentModel(e.target.value)}
+              placeholder="model (optional)"
+              className="w-full rounded border border-slate-300 px-3 py-2 text-base md:text-sm"
+            />
+            <button
+              type="submit"
+              className="w-full rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+            >
+              Add agent
+            </button>
           </form>
 
           <ul className="flex-1 overflow-y-auto">
@@ -231,7 +248,7 @@ export default function App() {
                 >
                   <span className="font-medium">{agent.name}</span>
                   <span className="text-xs text-slate-500">
-                    {agent.status} · {agent.output_count} msgs
+                    {agent.config?.engine ?? "?"} · {agent.status} · {agent.output_count} msgs
                   </span>
                 </button>
               </li>

@@ -27,6 +27,16 @@ export function clearApiKey(): void {
 /** Per-message agent mode: plan (propose only) or default (full execution, incl. shell). */
 export type AgentMode = "plan" | "default";
 
+export type AgentEngine = "interactive" | "headless" | "mock";
+
+/** Per-agent launch config chosen at creation (unset fields use server defaults). */
+export interface AgentConfigInput {
+  engine?: AgentEngine;
+  model?: string;
+  permission_mode?: string;
+  workspace_dir?: string;
+}
+
 export interface Agent {
   id: string;
   name: string;
@@ -35,6 +45,7 @@ export interface Agent {
   created_at: string;
   updated_at: string;
   output_count: number;
+  config?: { engine?: string | null; model?: string | null };
 }
 
 export interface Interaction {
@@ -143,8 +154,8 @@ export const api = {
 
   listAgents: () => request<{ agents: Agent[] }>("/agents").then((d) => d.agents),
 
-  createAgent: (name: string) =>
-    request<Agent>("/agents", { method: "POST", body: JSON.stringify({ name }) }),
+  createAgent: (name: string, config?: AgentConfigInput) =>
+    request<Agent>("/agents", { method: "POST", body: JSON.stringify({ name, config }) }),
 
   chat: (agentId: string, message: string, mode?: AgentMode) =>
     request<ChatResult>("/chat", {
