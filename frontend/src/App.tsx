@@ -117,22 +117,40 @@ export default function App() {
     setBusy(true);
     setError(null);
     setLive({ text: "", tools: [] });
+    const chunks: string[] = [];
+    let resultText = "";
     try {
       for await (const ev of api.chatStream(selectedId, text, mode)) {
         if (ev.type === "text") {
+          chunks.push(ev.text ?? "");
           setLive((l) => (l ? { ...l, text: l.text ? `${l.text}\n${ev.text ?? ""}` : ev.text ?? "" } : l));
         } else if (ev.type === "tool") {
           const label = `${ev.name ?? "tool"}${ev.input ? ` ${ev.input}` : ""}`;
           setLive((l) => (l ? { ...l, tools: [...l.tools, label] } : l));
+        } else if (ev.type === "result") {
+          resultText = ev.text ?? "";
         } else if (ev.type === "error") {
           throw new ApiError(ev.error ?? "stream error", ev.code ?? "BACKEND_ERROR");
         }
       }
-      await refreshOutputs(selectedId); // replace optimistic + live with server truth
-      await refreshAgents();
+      // Append the agent reply straight from the stream — no refresh round-trip
+      // (which raced the server's persistence and made the reply disappear).
+      const answer = (resultText || chunks.join("\n")).trim();
+      if (answer) {
+        setOutputs((prev) => [
+          ...prev,
+          {
+            id: `agent-${Date.now()}`,
+            timestamp: new Date().toISOString(),
+            role: "agent",
+            content: answer,
+            usage: null,
+          },
+        ]);
+      }
+      void refreshAgents(); // refresh sidebar counts; does not touch the transcript
     } catch (err) {
       handleError(err);
-      await refreshOutputs(selectedId);
     } finally {
       setBusy(false);
       setLive(null);
