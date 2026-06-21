@@ -19,6 +19,7 @@ import asyncio
 import json
 import logging
 import os
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
@@ -80,6 +81,21 @@ class ClaudeBackend(Protocol):
         """
         ...
 
+    def run_stream(
+        self,
+        prompt: str,
+        resume_session_id: str | None = None,
+        permission_mode: str | None = None,
+        allowed_tools: str | None = None,
+    ) -> AsyncIterator[dict[str, object]]:
+        """Stream the agent's progress as compact UI events.
+
+        Yields dicts shaped like ``{"type": "text"|"tool"|"result"|"error", ...}``
+        as the agent works, so callers can render progress live. The final
+        ``result`` event carries ``session_id`` and ``usage``.
+        """
+        ...
+
 
 class CliSubprocessBackend:
     """Backend that drives the ``claude`` CLI as a subprocess.
@@ -124,10 +140,13 @@ class CliSubprocessBackend:
         resume_session_id: str | None,
         permission_mode: str | None = None,
         allowed_tools: str | None = None,
+        output_format: str = "json",
     ) -> list[str]:
         mode = permission_mode or self._permission_mode
         tools = allowed_tools or self._allowed_tools
-        command = [self._binary, "-p", prompt, "--output-format", "json"]
+        command = [self._binary, "-p", prompt, "--output-format", output_format]
+        if output_format == "stream-json":
+            command += ["--verbose"]  # required by the CLI for -p stream-json
         if self._model:
             command += ["--model", self._model]
         if mode:
@@ -178,6 +197,89 @@ class CliSubprocessBackend:
             raise BackendError(f"claude CLI exited with code {process.returncode}: {detail}")
 
         return self._parse_output(stdout)
+
+    async def run_stream(
+        self,
+        prompt: str,
+        resume_session_id: str | None = None,
+        permission_mode: str | None = None,
+        allowed_tools: str | None = None,
+    ) -> AsyncIterator[dict[str, object]]:
+        """Stream the agent's progress as it works (see :meth:`ClaudeBackend.run_stream`)."""
+        command = self._build_command(
+            prompt, resume_session_id, permission_mode, allowed_tools, output_format="stream-json"
+        )
+        cwd = None
+        if self._workspace_dir:
+            os.makedirs(self._workspace_dir, exist_ok=True)
+            cwd = self._workspace_dir
+
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=cwd,
+            )
+        except FileNotFoundError as exc:
+            raise BackendError(f"claude binary not found: {self._binary!r}") from exc
+
+        assert process.stdout is not None
+        assert process.stderr is not None
+        try:
+            while True:
+                try:
+                    raw = await asyncio.wait_for(process.stdout.readline(), timeout=self._timeout)
+                except TimeoutError:
+                    yield {"type": "error", "error": f"stream stalled after {self._timeout}s"}
+                    break
+                if not raw:
+                    break  # EOF
+                line = raw.decode("utf-8", errors="replace").strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                for ui in self._to_ui_events(event):
+                    yield ui
+            await process.wait()
+            if process.returncode not in (0, None):
+                detail = (await process.stderr.read()).decode("utf-8", errors="replace").strip()
+                yield {"type": "error", "error": f"claude CLI exited with code {process.returncode}: {detail[:200]}"}
+        finally:
+            if process.returncode is None:
+                process.kill()
+                await process.wait()
+
+    @staticmethod
+    def _to_ui_events(event: dict[str, object]) -> list[dict[str, object]]:
+        """Translate a raw stream-json event into zero or more compact UI events."""
+        etype = event.get("type")
+        out: list[dict[str, object]] = []
+        if etype == "assistant":
+            message = event.get("message")
+            content = message.get("content", []) if isinstance(message, dict) else []
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                if block.get("type") == "text" and block.get("text"):
+                    out.append({"type": "text", "text": block["text"]})
+                elif block.get("type") == "tool_use":
+                    raw_input = block.get("input")
+                    summary = json.dumps(raw_input)[:160] if raw_input is not None else ""
+                    out.append({"type": "tool", "name": block.get("name", "tool"), "input": summary})
+        elif etype == "result":
+            out.append(
+                {
+                    "type": "result",
+                    "text": event.get("result", "") if isinstance(event.get("result"), str) else "",
+                    "session_id": event.get("session_id"),
+                    "usage": event.get("usage") if isinstance(event.get("usage"), dict) else {},
+                }
+            )
+        return out
 
     @staticmethod
     def _parse_output(stdout: bytes) -> BackendResult:
@@ -243,6 +345,24 @@ class MockBackend:
             session_id=session_id,
             usage={"input_tokens": 0, "output_tokens": 0},
         )
+
+    async def run_stream(
+        self,
+        prompt: str,
+        resume_session_id: str | None = None,
+        permission_mode: str | None = None,
+        allowed_tools: str | None = None,
+    ) -> AsyncIterator[dict[str, object]]:
+        """See :meth:`ClaudeBackend.run_stream`. Emits a couple of canned events."""
+        self.calls.append((prompt, resume_session_id))
+        session_id = resume_session_id or f"mock-session-{len(self.calls)}"
+        yield {"type": "text", "text": f"{self._reply}: {prompt}"}
+        yield {
+            "type": "result",
+            "text": f"{self._reply}: {prompt}",
+            "session_id": session_id,
+            "usage": {"input_tokens": 0, "output_tokens": 0},
+        }
 
 
 def build_backend(settings: Settings) -> ClaudeBackend:

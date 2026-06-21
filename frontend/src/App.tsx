@@ -21,6 +21,7 @@ export default function App() {
   const [mode, setMode] = useState<AgentMode>("auto");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [live, setLive] = useState<{ text: string; tools: string[] } | null>(null);
 
   const logout = useCallback(() => {
     clearApiKey();
@@ -115,15 +116,26 @@ export default function App() {
     setMessage("");
     setBusy(true);
     setError(null);
+    setLive({ text: "", tools: [] });
     try {
-      await api.chat(selectedId, text, mode);
-      await refreshOutputs(selectedId); // replace optimistic copy with server truth
+      for await (const ev of api.chatStream(selectedId, text, mode)) {
+        if (ev.type === "text") {
+          setLive((l) => (l ? { ...l, text: l.text ? `${l.text}\n${ev.text ?? ""}` : ev.text ?? "" } : l));
+        } else if (ev.type === "tool") {
+          const label = `${ev.name ?? "tool"}${ev.input ? ` ${ev.input}` : ""}`;
+          setLive((l) => (l ? { ...l, tools: [...l.tools, label] } : l));
+        } else if (ev.type === "error") {
+          throw new ApiError(ev.error ?? "stream error", ev.code ?? "BACKEND_ERROR");
+        }
+      }
+      await refreshOutputs(selectedId); // replace optimistic + live with server truth
       await refreshAgents();
     } catch (err) {
       handleError(err);
       await refreshOutputs(selectedId);
     } finally {
       setBusy(false);
+      setLive(null);
     }
   }
 
@@ -231,10 +243,20 @@ export default function App() {
                     <div className="whitespace-pre-wrap break-words">{item.content}</div>
                   </div>
                 ))}
-                {busy && (
-                  <div className="mr-auto max-w-[85%] rounded-lg bg-white px-4 py-2 text-sm text-slate-400 shadow md:max-w-2xl">
+                {live && (
+                  <div className="mr-auto max-w-[85%] rounded-lg bg-white px-4 py-2 text-sm text-slate-900 shadow md:max-w-2xl">
                     <div className="mb-1 text-xs uppercase opacity-60">agent</div>
-                    <div className="animate-pulse">…thinking</div>
+                    {live.tools.map((t, i) => (
+                      <div key={i} className="font-mono text-xs text-slate-500">
+                        🔧 {t}
+                      </div>
+                    ))}
+                    {live.text && (
+                      <div className="mt-1 whitespace-pre-wrap break-words">{live.text}</div>
+                    )}
+                    {!live.text && live.tools.length === 0 && (
+                      <div className="animate-pulse text-slate-400">…thinking</div>
+                    )}
                   </div>
                 )}
               </div>

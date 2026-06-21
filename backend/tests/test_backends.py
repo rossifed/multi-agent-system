@@ -102,6 +102,27 @@ def test_build_command_per_call_allowed_tools_overrides_default() -> None:
     assert command[idx + 1 : idx + 3] == ["Read", "Grep"]  # per-call override wins
 
 
+def test_to_ui_events_translates_text_tool_and_result() -> None:
+    from agent_platform.core.backends import CliSubprocessBackend as C
+
+    assert C._to_ui_events({"type": "system"}) == []
+    text_ev = C._to_ui_events({"type": "assistant", "message": {"content": [{"type": "text", "text": "hi"}]}})
+    assert text_ev == [{"type": "text", "text": "hi"}]
+    tool_ev = C._to_ui_events(
+        {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {"cmd": "ls"}}]}}
+    )
+    assert tool_ev[0]["type"] == "tool" and tool_ev[0]["name"] == "Bash"
+    res_ev = C._to_ui_events({"type": "result", "result": "done", "session_id": "abc", "usage": {"x": 1}})
+    assert res_ev == [{"type": "result", "text": "done", "session_id": "abc", "usage": {"x": 1}}]
+
+
+async def test_mock_backend_run_stream_yields_text_then_result() -> None:
+    backend = MockBackend(reply="echo")
+    events = [e async for e in backend.run_stream("hi")]
+    assert events[0]["type"] == "text"
+    assert events[-1]["type"] == "result" and events[-1]["session_id"]
+
+
 def test_build_command_includes_full_power_flags() -> None:
     backend = CliSubprocessBackend(
         binary="claude",

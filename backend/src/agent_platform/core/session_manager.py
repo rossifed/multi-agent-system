@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 from agent_platform.core.backends import BackendError, BackendTimeoutError, ClaudeBackend
@@ -201,6 +202,63 @@ class SessionManager:
             "session_id": agent.claude_session_id,
             "usage": result.usage,
         }
+
+    async def stream_message(
+        self,
+        agent_id: str,
+        message: str,
+        permission_mode: str | None = None,
+        allowed_tools: str | None = None,
+        prompt_override: str | None = None,
+    ) -> AsyncIterator[dict[str, object]]:
+        """Stream an agent's progress live, persisting the result when done.
+
+        Yields the backend's UI events (``text``/``tool``/``result``/``error``).
+        The user message is recorded immediately; the agent's final text and
+        session id are persisted once the stream ends (even on early disconnect).
+        """
+        agent = self._agents.get(agent_id)
+        if agent is None:
+            yield {"type": "error", "code": "AGENT_NOT_FOUND", "error": f"No agent with id {agent_id!r}"}
+            return
+
+        async with self._lock:
+            agent.outputs.append(Interaction(role=InteractionRole.USER, content=message))
+            agent.status = AgentStatus.RUNNING
+            agent.touch()
+            self._save()
+
+            texts: list[str] = []
+            usage: dict[str, object] = {}
+            errored = False
+            try:
+                async for event in self._backend.run_stream(
+                    prompt_override or message,
+                    resume_session_id=agent.claude_session_id,
+                    permission_mode=permission_mode,
+                    allowed_tools=allowed_tools,
+                ):
+                    etype = event.get("type")
+                    if etype == "text":
+                        texts.append(str(event.get("text", "")))
+                    elif etype == "result":
+                        sid = event.get("session_id")
+                        if isinstance(sid, str):
+                            agent.claude_session_id = sid
+                        if isinstance(event.get("usage"), dict):
+                            usage = event["usage"]  # type: ignore[assignment]
+                    elif etype == "error":
+                        errored = True
+                    yield event
+            finally:
+                final_text = "\n".join(t for t in texts if t).strip()
+                if final_text:
+                    agent.outputs.append(
+                        Interaction(role=InteractionRole.AGENT, content=final_text, usage=usage)
+                    )
+                agent.status = AgentStatus.ERROR if errored else AgentStatus.RUNNING
+                agent.touch()
+                self._save()
 
     # ------------------------------------------------------------------ #
     # Helpers

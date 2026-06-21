@@ -7,11 +7,13 @@ envelope and uses proper HTTP status codes. Business logic lives in the
 
 from __future__ import annotations
 
+import json
 import logging
+from collections.abc import AsyncIterator
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Request, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from agent_platform import __version__
@@ -63,6 +65,15 @@ _PLAN_INSTRUCTION = (
 )
 
 
+def _resolve_mode(mode: str | None, message: str) -> tuple[str | None, str | None, str | None]:
+    """Map a product mode to (permission_mode, allowed_tools, prompt_override)."""
+    if mode == "plan":
+        return None, _PLAN_TOOLS, _PLAN_INSTRUCTION + message
+    if mode == "auto":
+        return "bypassPermissions", None, None
+    return None, None, None
+
+
 def _error_response(code: str, message: str, http_status: int) -> JSONResponse:
     body = ApiError(error=message, code=code).model_dump()
     return JSONResponse(status_code=http_status, content=body)
@@ -109,15 +120,7 @@ def get_agent_outputs(agent_id: str, manager: ManagerDep) -> JSONResponse:
 @router.post("/chat", tags=["chat"], dependencies=[AuthDep])
 async def chat(body: ChatRequest, manager: ManagerDep) -> JSONResponse:
     """Send a message to an agent and return its response."""
-    permission_mode: str | None = None
-    allowed_tools: str | None = None
-    prompt_override: str | None = None
-    if body.mode == "plan":
-        allowed_tools = _PLAN_TOOLS
-        prompt_override = _PLAN_INSTRUCTION + body.message
-    elif body.mode == "auto":
-        permission_mode = "bypassPermissions"
-
+    permission_mode, allowed_tools, prompt_override = _resolve_mode(body.mode, body.message)
     result = await manager.send_message(
         body.agent_id,
         body.message,
@@ -140,3 +143,30 @@ async def chat(body: ChatRequest, manager: ManagerDep) -> JSONResponse:
     code = str(result.get("code", "INTERNAL_ERROR"))
     http_status = _ERROR_STATUS.get(code, status.HTTP_500_INTERNAL_SERVER_ERROR)
     return _error_response(code, str(result.get("error", "Unknown error")), http_status)
+
+
+@router.post("/chat/stream", tags=["chat"], dependencies=[AuthDep])
+async def chat_stream(body: ChatRequest, manager: ManagerDep) -> StreamingResponse:
+    """Stream an agent's progress live as newline-delimited JSON (NDJSON) events.
+
+    Each line is a UI event: ``{"type": "text"|"tool"|"result"|"error", ...}``.
+    Consume with fetch + a ReadableStream reader (EventSource can't send the
+    API-key header).
+    """
+    permission_mode, allowed_tools, prompt_override = _resolve_mode(body.mode, body.message)
+
+    async def event_stream() -> AsyncIterator[bytes]:
+        async for event in manager.stream_message(
+            body.agent_id,
+            body.message,
+            permission_mode=permission_mode,
+            allowed_tools=allowed_tools,
+            prompt_override=prompt_override,
+        ):
+            yield (json.dumps(event) + "\n").encode("utf-8")
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

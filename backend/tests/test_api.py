@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 
 import pytest
@@ -101,6 +102,18 @@ def test_chat_plan_mode_prefixes_backend_prompt_but_keeps_history_clean(
     outputs = client.get(f"/agents/{agent_id}/outputs").json()["data"]["outputs"]
     user_messages = [o["content"] for o in outputs if o["role"] == "user"]
     assert user_messages[-1] == "do X"
+
+
+def test_chat_stream_emits_events_and_persists(client: TestClient) -> None:
+    agent_id = client.post("/agents", json={"name": "s"}).json()["data"]["id"]
+    with client.stream("POST", "/chat/stream", json={"agent_id": agent_id, "message": "hi"}) as r:
+        assert r.status_code == 200
+        events = [json.loads(line) for line in r.iter_lines() if line]
+    types = [e["type"] for e in events]
+    assert "text" in types and "result" in types
+    outputs = client.get(f"/agents/{agent_id}/outputs").json()["data"]["outputs"]
+    roles = [o["role"] for o in outputs]
+    assert "user" in roles and "agent" in roles
 
 
 def test_chat_rejects_invalid_mode(client: TestClient) -> None:
