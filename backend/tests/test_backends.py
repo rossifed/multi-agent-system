@@ -102,6 +102,13 @@ def test_build_command_per_call_allowed_tools_overrides_default() -> None:
     assert command[idx + 1 : idx + 3] == ["Read", "Grep"]  # per-call override wins
 
 
+def test_build_command_disallowed_tools() -> None:
+    backend = CliSubprocessBackend(binary="claude")
+    command = backend._build_command("hi", resume_session_id=None, disallowed_tools="Bash KillShell")
+    idx = command.index("--disallowedTools")
+    assert command[idx + 1 : idx + 3] == ["Bash", "KillShell"]
+
+
 def test_to_ui_events_translates_text_tool_and_result() -> None:
     from agent_platform.core.backends import CliSubprocessBackend as C
 

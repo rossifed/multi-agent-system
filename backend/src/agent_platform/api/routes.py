@@ -47,10 +47,10 @@ class ChatRequest(BaseModel):
 
     agent_id: str = Field(min_length=1, description="Target agent id.")
     message: str = Field(min_length=1, description="The prompt to send to the agent.")
-    mode: Literal["plan", "auto"] | None = Field(
+    mode: Literal["default", "plan", "auto"] | None = Field(
         default=None,
-        description="Per-message agent mode: 'plan' (propose only, no changes) or "
-        "'auto' (full execution). Omit to use the server default.",
+        description="Per-message agent mode: 'plan' (propose only), 'default' "
+        "(edit files, no shell), or 'auto' (full execution incl. shell).",
     )
 
 
@@ -63,15 +63,27 @@ _PLAN_INSTRUCTION = (
     "[PLAN MODE — do NOT make any changes: do not create or edit files and do not "
     "run commands. Reply ONLY with a short, numbered plan of what you would do.]\n\n"
 )
+# "default" mode: full execution EXCEPT shell. A denylist works even under
+# bypassPermissions (an --allowedTools allowlist does not).
+_NO_SHELL_TOOLS = "Bash BashOutput KillShell"
 
 
-def _resolve_mode(mode: str | None, message: str) -> tuple[str | None, str | None, str | None]:
-    """Map a product mode to (permission_mode, allowed_tools, prompt_override)."""
+def _resolve_mode(
+    mode: str | None, message: str
+) -> tuple[str | None, str | None, str | None, str | None]:
+    """Map a product mode to (permission_mode, allowed_tools, disallowed_tools, prompt_override).
+
+    - plan:    read-only tools + planning instruction → proposes, no changes.
+    - default: full execution but no shell (edits files; Bash denied).
+    - auto:    full execution including shell.
+    """
     if mode == "plan":
-        return None, _PLAN_TOOLS, _PLAN_INSTRUCTION + message
+        return None, _PLAN_TOOLS, None, _PLAN_INSTRUCTION + message
+    if mode == "default":
+        return "bypassPermissions", None, _NO_SHELL_TOOLS, None
     if mode == "auto":
-        return "bypassPermissions", None, None
-    return None, None, None
+        return "bypassPermissions", None, None, None
+    return None, None, None, None
 
 
 def _error_response(code: str, message: str, http_status: int) -> JSONResponse:
@@ -120,13 +132,16 @@ def get_agent_outputs(agent_id: str, manager: ManagerDep) -> JSONResponse:
 @router.post("/chat", tags=["chat"], dependencies=[AuthDep])
 async def chat(body: ChatRequest, manager: ManagerDep) -> JSONResponse:
     """Send a message to an agent and return its response."""
-    permission_mode, allowed_tools, prompt_override = _resolve_mode(body.mode, body.message)
+    permission_mode, allowed_tools, disallowed_tools, prompt_override = _resolve_mode(
+        body.mode, body.message
+    )
     result = await manager.send_message(
         body.agent_id,
         body.message,
         permission_mode=permission_mode,
         allowed_tools=allowed_tools,
         prompt_override=prompt_override,
+        disallowed_tools=disallowed_tools,
     )
 
     if result.get("status") == "success":
@@ -153,7 +168,9 @@ async def chat_stream(body: ChatRequest, manager: ManagerDep) -> StreamingRespon
     Consume with fetch + a ReadableStream reader (EventSource can't send the
     API-key header).
     """
-    permission_mode, allowed_tools, prompt_override = _resolve_mode(body.mode, body.message)
+    permission_mode, allowed_tools, disallowed_tools, prompt_override = _resolve_mode(
+        body.mode, body.message
+    )
 
     async def event_stream() -> AsyncIterator[bytes]:
         async for event in manager.stream_message(
@@ -162,6 +179,7 @@ async def chat_stream(body: ChatRequest, manager: ManagerDep) -> StreamingRespon
             permission_mode=permission_mode,
             allowed_tools=allowed_tools,
             prompt_override=prompt_override,
+            disallowed_tools=disallowed_tools,
         ):
             yield (json.dumps(event) + "\n").encode("utf-8")
 

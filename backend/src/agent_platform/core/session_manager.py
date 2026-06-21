@@ -135,6 +135,7 @@ class SessionManager:
         permission_mode: str | None = None,
         allowed_tools: str | None = None,
         prompt_override: str | None = None,
+        disallowed_tools: str | None = None,
     ) -> dict[str, object]:
         """Send a message to an agent and record the response.
 
@@ -178,6 +179,7 @@ class SessionManager:
                     resume_session_id=agent.claude_session_id,
                     permission_mode=permission_mode,
                     allowed_tools=allowed_tools,
+                    disallowed_tools=disallowed_tools,
                 )
             except BackendTimeoutError as exc:
                 return self._fail(agent, "BACKEND_TIMEOUT", str(exc))
@@ -210,6 +212,7 @@ class SessionManager:
         permission_mode: str | None = None,
         allowed_tools: str | None = None,
         prompt_override: str | None = None,
+        disallowed_tools: str | None = None,
     ) -> AsyncIterator[dict[str, object]]:
         """Stream an agent's progress live, persisting the result when done.
 
@@ -238,6 +241,7 @@ class SessionManager:
                     resume_session_id=agent.claude_session_id,
                     permission_mode=permission_mode,
                     allowed_tools=allowed_tools,
+                    disallowed_tools=disallowed_tools,
                 ):
                     etype = event.get("type")
                     if etype == "text":

@@ -24,8 +24,8 @@ export function clearApiKey(): void {
   localStorage.removeItem(KEY_STORAGE);
 }
 
-/** Per-message agent mode: "plan" proposes only; "auto" executes fully. */
-export type AgentMode = "plan" | "auto";
+/** Per-message agent mode: plan (propose only), default (edit files, no shell), auto (full). */
+export type AgentMode = "plan" | "default" | "auto";
 
 export interface Agent {
   id: string;

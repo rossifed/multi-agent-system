@@ -61,6 +61,7 @@ class ClaudeBackend(Protocol):
         resume_session_id: str | None = None,
         permission_mode: str | None = None,
         allowed_tools: str | None = None,
+        disallowed_tools: str | None = None,
     ) -> BackendResult:
         """Send ``prompt`` to Claude and return the response.
 
@@ -87,6 +88,7 @@ class ClaudeBackend(Protocol):
         resume_session_id: str | None = None,
         permission_mode: str | None = None,
         allowed_tools: str | None = None,
+        disallowed_tools: str | None = None,
     ) -> AsyncIterator[dict[str, object]]:
         """Stream the agent's progress as compact UI events.
 
@@ -141,6 +143,7 @@ class CliSubprocessBackend:
         permission_mode: str | None = None,
         allowed_tools: str | None = None,
         output_format: str = "json",
+        disallowed_tools: str | None = None,
     ) -> list[str]:
         mode = permission_mode or self._permission_mode
         tools = allowed_tools or self._allowed_tools
@@ -153,6 +156,8 @@ class CliSubprocessBackend:
             command += ["--permission-mode", mode]
         if tools:
             command += ["--allowedTools", *tools.split()]
+        if disallowed_tools:
+            command += ["--disallowedTools", *disallowed_tools.split()]
         if self._workspace_dir:
             command += ["--add-dir", self._workspace_dir]
         if resume_session_id:
@@ -165,9 +170,12 @@ class CliSubprocessBackend:
         resume_session_id: str | None = None,
         permission_mode: str | None = None,
         allowed_tools: str | None = None,
+        disallowed_tools: str | None = None,
     ) -> BackendResult:
         """See :meth:`ClaudeBackend.run`."""
-        command = self._build_command(prompt, resume_session_id, permission_mode, allowed_tools)
+        command = self._build_command(
+            prompt, resume_session_id, permission_mode, allowed_tools, disallowed_tools=disallowed_tools
+        )
         logger.debug("Invoking claude CLI", extra={"resume": resume_session_id, "model": self._model})
 
         cwd = None
@@ -204,10 +212,16 @@ class CliSubprocessBackend:
         resume_session_id: str | None = None,
         permission_mode: str | None = None,
         allowed_tools: str | None = None,
+        disallowed_tools: str | None = None,
     ) -> AsyncIterator[dict[str, object]]:
         """Stream the agent's progress as it works (see :meth:`ClaudeBackend.run_stream`)."""
         command = self._build_command(
-            prompt, resume_session_id, permission_mode, allowed_tools, output_format="stream-json"
+            prompt,
+            resume_session_id,
+            permission_mode,
+            allowed_tools,
+            output_format="stream-json",
+            disallowed_tools=disallowed_tools,
         )
         cwd = None
         if self._workspace_dir:
@@ -331,6 +345,7 @@ class MockBackend:
         resume_session_id: str | None = None,
         permission_mode: str | None = None,
         allowed_tools: str | None = None,
+        disallowed_tools: str | None = None,
     ) -> BackendResult:
         """See :meth:`ClaudeBackend.run`. Returns a canned response."""
         self.calls.append((prompt, resume_session_id))
@@ -352,6 +367,7 @@ class MockBackend:
         resume_session_id: str | None = None,
         permission_mode: str | None = None,
         allowed_tools: str | None = None,
+        disallowed_tools: str | None = None,
     ) -> AsyncIterator[dict[str, object]]:
         """See :meth:`ClaudeBackend.run_stream`. Emits a couple of canned events."""
         self.calls.append((prompt, resume_session_id))

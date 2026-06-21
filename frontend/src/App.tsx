@@ -11,6 +11,12 @@ import {
   type Interaction,
 } from "./api";
 
+const MODE_HINTS: Record<AgentMode, string> = {
+  plan: "propose only, no changes",
+  default: "edits files, no shell",
+  auto: "full execution (incl. shell)",
+};
+
 export default function App() {
   const [apiKey, setKey] = useState(getApiKey());
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -18,7 +24,7 @@ export default function App() {
   const [outputs, setOutputs] = useState<Interaction[]>([]);
   const [newAgentName, setNewAgentName] = useState("");
   const [message, setMessage] = useState("");
-  const [mode, setMode] = useState<AgentMode>("auto");
+  const [mode, setMode] = useState<AgentMode>("default");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [live, setLive] = useState<{ text: string; tools: string[] } | null>(null);
@@ -286,7 +292,7 @@ export default function App() {
                 <div className="flex items-center gap-2 text-xs">
                   <span className="text-slate-400">Mode</span>
                   <div className="inline-flex overflow-hidden rounded border border-slate-300">
-                    {(["plan", "auto"] as AgentMode[]).map((m) => (
+                    {(["plan", "default", "auto"] as AgentMode[]).map((m) => (
                       <button
                         key={m}
                         type="button"
@@ -299,9 +305,7 @@ export default function App() {
                       </button>
                     ))}
                   </div>
-                  <span className="text-slate-400">
-                    {mode === "plan" ? "propose only, no changes" : "full execution"}
-                  </span>
+                  <span className="text-slate-400">{MODE_HINTS[mode]}</span>
                 </div>
                 <div className="flex gap-2">
                   <input
