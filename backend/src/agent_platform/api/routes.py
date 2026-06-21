@@ -8,6 +8,7 @@ envelope and uses proper HTTP status codes. Business logic lives in the
 from __future__ import annotations
 
 import logging
+import os
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, status
@@ -60,7 +61,16 @@ def health(request: Request) -> ApiSuccess[dict[str, str]]:
     be verified without exposing the key.
     """
     auth = "enabled" if getattr(request.app.state, "gateway_api_key", None) else "disabled"
-    return ApiSuccess(data={"service": "agent-platform", "version": __version__, "auth": auth})
+    # TEMP diagnostic: which relevant env vars the container actually sees (names/bools only).
+    debug = {
+        "agent_env_names": sorted(k for k in os.environ if k.startswith("AGENT_")),
+        "has_oauth_token": bool(os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")),
+        "is_sandbox": os.environ.get("IS_SANDBOX", "ABSENT"),
+        "gateway_key_len": len(os.environ.get("AGENT_GATEWAY_API_KEY", "")),
+    }
+    return ApiSuccess(
+        data={"service": "agent-platform", "version": __version__, "auth": auth, "debug": debug}
+    )
 
 
 @router.post("/agents", status_code=status.HTTP_201_CREATED, tags=["agents"], dependencies=[AuthDep])
