@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -53,9 +53,14 @@ def _error_response(code: str, message: str, http_status: int) -> JSONResponse:
 
 
 @router.get("/health", tags=["system"])
-def health() -> ApiSuccess[dict[str, str]]:
-    """Liveness probe. Used by Docker/Railway health checks."""
-    return ApiSuccess(data={"service": "agent-platform", "version": __version__})
+def health(request: Request) -> ApiSuccess[dict[str, str]]:
+    """Liveness probe. Used by Docker/Railway health checks.
+
+    Also reports whether API auth is active, so a deployment's configuration can
+    be verified without exposing the key.
+    """
+    auth = "enabled" if getattr(request.app.state, "gateway_api_key", None) else "disabled"
+    return ApiSuccess(data={"service": "agent-platform", "version": __version__, "auth": auth})
 
 
 @router.post("/agents", status_code=status.HTTP_201_CREATED, tags=["agents"], dependencies=[AuthDep])
