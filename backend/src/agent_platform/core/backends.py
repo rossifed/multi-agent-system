@@ -21,9 +21,12 @@ import logging
 import os
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from agent_platform.config import Settings
+
+if TYPE_CHECKING:
+    from agent_platform.models.agent import AgentConfig
 
 logger = logging.getLogger(__name__)
 
@@ -400,4 +403,39 @@ def build_backend(settings: Settings) -> ClaudeBackend:
         permission_mode=settings.claude_permission_mode,
         workspace_dir=settings.claude_workspace_dir,
         allowed_tools=settings.claude_allowed_tools,
+    )
+
+
+def build_backend_for_config(config: AgentConfig, settings: Settings) -> ClaudeBackend:
+    """Build the backend an agent asked for via its per-agent config.
+
+    The agent's ``engine`` (interactive / headless / mock) and per-agent overrides
+    (model, workspace, permission mode, tools) decide what is built; unset fields
+    fall back to server defaults. The global ``AGENT_BACKEND=mock`` switch still
+    wins, for offline/test runs.
+    """
+    from agent_platform.models.agent import AgentEngine
+
+    if settings.backend == "mock":
+        return MockBackend()
+
+    engine = config.engine or AgentEngine.HEADLESS
+    if engine == AgentEngine.MOCK:
+        return MockBackend()
+    if engine == AgentEngine.INTERACTIVE:
+        from agent_platform.core.interactive_backend import InteractiveBackend
+
+        return InteractiveBackend(
+            binary=settings.claude_binary,
+            timeout_seconds=settings.claude_timeout_seconds,
+            model=config.model or settings.claude_model,
+            workspace_dir=config.workspace_dir or settings.claude_workspace_dir,
+        )
+    return CliSubprocessBackend(
+        binary=settings.claude_binary,
+        timeout_seconds=settings.claude_timeout_seconds,
+        model=config.model or settings.claude_model,
+        permission_mode=config.permission_mode or settings.claude_permission_mode,
+        workspace_dir=config.workspace_dir or settings.claude_workspace_dir,
+        allowed_tools=config.allowed_tools or settings.claude_allowed_tools,
     )

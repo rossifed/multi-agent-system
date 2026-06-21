@@ -20,7 +20,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from agent_platform import __version__
 from agent_platform.api.routes import router
 from agent_platform.config import Settings, get_settings
-from agent_platform.core.backends import build_backend
+from agent_platform.core.backends import build_backend_for_config
 from agent_platform.core.session_manager import SessionManager
 from agent_platform.logging_config import configure_logging
 from agent_platform.models.responses import ApiError
@@ -48,8 +48,10 @@ def create_app(
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         if not hasattr(application.state, "session_manager"):
-            backend = build_backend(settings)
-            application.state.session_manager = SessionManager(backend, settings.session_store_path)
+            application.state.session_manager = SessionManager(
+                store_path=settings.session_store_path,
+                backend_factory=lambda agent: build_backend_for_config(agent.config, settings),
+            )
         logger.info("Agent platform started", extra={"version": __version__, "backend": settings.backend})
         yield
         logger.info("Agent platform shutting down")

@@ -24,6 +24,28 @@ class AgentStatus(StrEnum):
     ERROR = "error"
 
 
+class AgentEngine(StrEnum):
+    """How an agent's ``claude`` session is run — a per-agent choice, not a global."""
+
+    HEADLESS = "headless"  # `claude -p` (structured, one-shot per turn)
+    INTERACTIVE = "interactive"  # real interactive TUI driven over a PTY (Step 1)
+    MOCK = "mock"  # canned responses (tests / offline)
+
+
+class AgentConfig(BaseModel):
+    """Per-agent launch configuration, chosen at creation (nothing hardcoded).
+
+    Unset fields (``None``) fall back to server defaults when the backend is built.
+    """
+
+    engine: AgentEngine | None = None
+    model: str | None = None
+    permission_mode: str | None = None  # the agent's default mode (overridable per message)
+    workspace_dir: str | None = None
+    allowed_tools: str | None = None
+    disallowed_tools: str | None = None
+
+
 def _new_agent_id(name: str) -> str:
     slug = "".join(c if c.isalnum() else "-" for c in name.strip().lower()).strip("-") or "agent"
     return f"{slug}-{uuid.uuid4().hex[:8]}"
@@ -44,18 +66,20 @@ class Agent(BaseModel):
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
     outputs: list[Interaction] = Field(default_factory=list)
+    config: AgentConfig = Field(default_factory=AgentConfig)
 
     @classmethod
-    def create(cls, name: str) -> Agent:
+    def create(cls, name: str, config: AgentConfig | None = None) -> Agent:
         """Build a fresh agent with a generated id.
 
         Args:
             name: Human-friendly agent name (e.g. ``"architect"``).
+            config: Optional per-agent launch configuration (engine, model, …).
 
         Returns:
             A new :class:`Agent` in the ``created`` state.
         """
-        return cls(agent_id=_new_agent_id(name), name=name)
+        return cls(agent_id=_new_agent_id(name), name=name, config=config or AgentConfig())
 
     def touch(self) -> None:
         """Update the ``updated_at`` timestamp to now."""
@@ -71,4 +95,5 @@ class Agent(BaseModel):
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "output_count": len(self.outputs),
+            "config": self.config.model_dump(),
         }

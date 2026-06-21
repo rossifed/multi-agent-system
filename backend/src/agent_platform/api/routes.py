@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from agent_platform import __version__
 from agent_platform.api.dependencies import get_session_manager, require_api_key
 from agent_platform.core.session_manager import SessionManager, SessionNotFoundError
+from agent_platform.models.agent import AgentConfig
 from agent_platform.models.responses import ApiError, ApiSuccess
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,11 @@ class CreateAgentRequest(BaseModel):
     """Body for creating an agent."""
 
     name: str = Field(min_length=1, max_length=100, description="Human-friendly agent name.")
+    config: AgentConfig | None = Field(
+        default=None,
+        description="Per-agent launch config (engine, model, permission mode, …). "
+        "Unset fields fall back to server defaults.",
+    )
 
 
 class ChatRequest(BaseModel):
@@ -66,9 +72,7 @@ _PLAN_INSTRUCTION = (
 )
 
 
-def _resolve_mode(
-    mode: str | None, message: str
-) -> tuple[str | None, str | None, str | None, str | None]:
+def _resolve_mode(mode: str | None, message: str) -> tuple[str | None, str | None, str | None, str | None]:
     """Map a product mode to (permission_mode, allowed_tools, disallowed_tools, prompt_override).
 
     - plan: read-only tools + planning instruction → proposes, no changes.
@@ -102,7 +106,7 @@ def create_agent(body: CreateAgentRequest, manager: ManagerDep) -> ApiSuccess[di
 
     Returns the created agent's summary including its generated ``id``.
     """
-    agent_id = manager.create_session(body.name)
+    agent_id = manager.create_session(body.name, body.config)
     return ApiSuccess(data=manager.get_session(agent_id))
 
 
@@ -126,9 +130,7 @@ def get_agent_outputs(agent_id: str, manager: ManagerDep) -> JSONResponse:
 @router.post("/chat", tags=["chat"], dependencies=[AuthDep])
 async def chat(body: ChatRequest, manager: ManagerDep) -> JSONResponse:
     """Send a message to an agent and return its response."""
-    permission_mode, allowed_tools, disallowed_tools, prompt_override = _resolve_mode(
-        body.mode, body.message
-    )
+    permission_mode, allowed_tools, disallowed_tools, prompt_override = _resolve_mode(body.mode, body.message)
     result = await manager.send_message(
         body.agent_id,
         body.message,
@@ -162,9 +164,7 @@ async def chat_stream(body: ChatRequest, manager: ManagerDep) -> StreamingRespon
     Consume with fetch + a ReadableStream reader (EventSource can't send the
     API-key header).
     """
-    permission_mode, allowed_tools, disallowed_tools, prompt_override = _resolve_mode(
-        body.mode, body.message
-    )
+    permission_mode, allowed_tools, disallowed_tools, prompt_override = _resolve_mode(body.mode, body.message)
 
     async def event_stream() -> AsyncIterator[bytes]:
         async for event in manager.stream_message(

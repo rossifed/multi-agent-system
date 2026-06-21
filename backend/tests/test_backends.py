@@ -102,6 +102,22 @@ def test_build_command_per_call_allowed_tools_overrides_default() -> None:
     assert command[idx + 1 : idx + 3] == ["Read", "Grep"]  # per-call override wins
 
 
+def test_build_backend_for_config_selects_engine() -> None:
+    from agent_platform.config import Settings
+    from agent_platform.core.backends import build_backend_for_config
+    from agent_platform.core.interactive_backend import InteractiveBackend
+    from agent_platform.models.agent import AgentConfig, AgentEngine
+
+    cli = Settings(backend="cli")
+    assert isinstance(build_backend_for_config(AgentConfig(engine=AgentEngine.HEADLESS), cli), CliSubprocessBackend)
+    assert isinstance(build_backend_for_config(AgentConfig(engine=AgentEngine.MOCK), cli), MockBackend)
+    assert isinstance(build_backend_for_config(AgentConfig(engine=AgentEngine.INTERACTIVE), cli), InteractiveBackend)
+    assert isinstance(build_backend_for_config(AgentConfig(), cli), CliSubprocessBackend)  # default = headless
+    # the global mock switch wins regardless of the agent's engine
+    mock = Settings(backend="mock")
+    assert isinstance(build_backend_for_config(AgentConfig(engine=AgentEngine.INTERACTIVE), mock), MockBackend)
+
+
 def test_build_command_disallowed_tools() -> None:
     backend = CliSubprocessBackend(binary="claude")
     command = backend._build_command("hi", resume_session_id=None, disallowed_tools="Bash KillShell")

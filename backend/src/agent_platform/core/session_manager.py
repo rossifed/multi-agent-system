@@ -10,11 +10,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 
 from agent_platform.core.backends import BackendError, BackendTimeoutError, ClaudeBackend
-from agent_platform.models.agent import Agent, AgentStatus
+from agent_platform.models.agent import Agent, AgentConfig, AgentStatus
 from agent_platform.models.message import Interaction, InteractionRole
 
 logger = logging.getLogger(__name__)
@@ -33,13 +33,35 @@ class SessionManager:
             state is loaded on construction and saved after every mutation.
     """
 
-    def __init__(self, backend: ClaudeBackend, store_path: str | Path | None = None) -> None:
+    def __init__(
+        self,
+        backend: ClaudeBackend | None = None,
+        store_path: str | Path | None = None,
+        *,
+        backend_factory: Callable[[Agent], ClaudeBackend] | None = None,
+    ) -> None:
+        if backend is None and backend_factory is None:
+            raise ValueError("provide either backend or backend_factory")
         self._backend = backend
+        self._backend_factory = backend_factory
+        self._backends: dict[str, ClaudeBackend] = {}
         self._store_path = Path(store_path) if store_path else None
         self._agents: dict[str, Agent] = {}
         self._lock = asyncio.Lock()
         if self._store_path is not None:
             self._load()
+
+    def _backend_for(self, agent: Agent) -> ClaudeBackend:
+        """Return the backend for an agent — built per-agent from its config when a
+        factory is configured, otherwise the single shared backend (tests)."""
+        if self._backend_factory is None:
+            assert self._backend is not None
+            return self._backend
+        cached = self._backends.get(agent.agent_id)
+        if cached is None:
+            cached = self._backend_factory(agent)
+            self._backends[agent.agent_id] = cached
+        return cached
 
     # ------------------------------------------------------------------ #
     # Persistence
@@ -72,11 +94,12 @@ class SessionManager:
     # ------------------------------------------------------------------ #
     # Queries
     # ------------------------------------------------------------------ #
-    def create_session(self, agent_name: str) -> str:
+    def create_session(self, agent_name: str, config: AgentConfig | None = None) -> str:
         """Create a new agent session.
 
         Args:
             agent_name: Human-friendly name for the agent.
+            config: Optional per-agent launch configuration (engine, model, …).
 
         Returns:
             The generated ``agent_id``.
@@ -86,7 +109,7 @@ class SessionManager:
         """
         if not agent_name or not agent_name.strip():
             raise ValueError("agent_name must not be empty")
-        agent = Agent.create(agent_name.strip())
+        agent = Agent.create(agent_name.strip(), config)
         self._agents[agent.agent_id] = agent
         self._save()
         logger.info("Created agent", extra={"agent_id": agent.agent_id, "agent_name": agent.name})
@@ -174,7 +197,7 @@ class SessionManager:
             agent.touch()
 
             try:
-                result = await self._backend.run(
+                result = await self._backend_for(agent).run(
                     prompt_override or message,
                     resume_session_id=agent.claude_session_id,
                     permission_mode=permission_mode,
@@ -236,7 +259,7 @@ class SessionManager:
             usage: dict[str, object] = {}
             errored = False
             try:
-                async for event in self._backend.run_stream(
+                async for event in self._backend_for(agent).run_stream(
                     prompt_override or message,
                     resume_session_id=agent.claude_session_id,
                     permission_mode=permission_mode,
@@ -264,9 +287,7 @@ class SessionManager:
                 # streamed text blocks so a tool-only turn still records a reply.
                 final_text = (result_text or "\n".join(t for t in texts if t)).strip()
                 if final_text:
-                    agent.outputs.append(
-                        Interaction(role=InteractionRole.AGENT, content=final_text, usage=usage)
-                    )
+                    agent.outputs.append(Interaction(role=InteractionRole.AGENT, content=final_text, usage=usage))
                 agent.status = AgentStatus.ERROR if errored else AgentStatus.RUNNING
                 agent.touch()
                 self._save()

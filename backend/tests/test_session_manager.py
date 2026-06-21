@@ -8,8 +8,34 @@ import pytest
 
 from agent_platform.core.backends import BackendError, BackendResult, BackendTimeoutError, MockBackend
 from agent_platform.core.session_manager import SessionManager, SessionNotFoundError
+from agent_platform.models.agent import Agent, AgentConfig, AgentEngine
 
 pytestmark = pytest.mark.anyio
+
+
+def test_session_manager_requires_backend_or_factory() -> None:
+    with pytest.raises(ValueError, match="backend or backend_factory"):
+        SessionManager()
+
+
+def test_create_session_persists_config(manager: SessionManager) -> None:
+    aid = manager.create_session("a", AgentConfig(engine=AgentEngine.MOCK, model="m1"))
+    cfg = manager.get_session(aid)["config"]
+    assert cfg["engine"] == "mock" and cfg["model"] == "m1"
+
+
+async def test_per_agent_backend_factory_builds_once_per_agent(tmp_path: Path) -> None:
+    built: list[str] = []
+
+    def factory(agent: Agent) -> MockBackend:
+        built.append(agent.agent_id)
+        return MockBackend(reply="ok")
+
+    sm = SessionManager(backend_factory=factory, store_path=str(tmp_path / "s.json"))
+    aid = sm.create_session("a", AgentConfig(engine=AgentEngine.MOCK))
+    assert (await sm.send_message(aid, "hi"))["status"] == "success"
+    await sm.send_message(aid, "again")
+    assert built == [aid]  # backend built once and reused across the agent's turns
 
 
 class _FailingBackend:

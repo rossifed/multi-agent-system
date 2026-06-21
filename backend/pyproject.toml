@@ -9,6 +9,8 @@ dependencies = [
     "uvicorn[standard]>=0.30,<1.0",
     "pydantic>=2.7,<3.0",
     "pydantic-settings>=2.3,<3.0",
+    "pexpect>=4.9,<5.0",
+    "pyte>=0.8,<1.0",
 ]
 
 [project.optional-dependencies]
@@ -53,3 +55,6 @@ pythonpath = ["src"]
 [tool.coverage.run]
 source = ["agent_platform"]
 branch = true
+# Interactive (PTY) backend drives a real `claude` TUI — validated via integration/
+# manual runs, not unit tests (no PTY/CLI in CI).
+omit = ["*/core/interactive_backend.py"]
