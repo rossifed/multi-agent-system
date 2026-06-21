@@ -116,15 +116,15 @@ def test_chat_stream_emits_events_and_persists(client: TestClient) -> None:
     assert "user" in roles and "agent" in roles
 
 
-def test_resolve_mode_maps_three_tiers() -> None:
+def test_resolve_mode_plan_is_readonly_default_is_full() -> None:
     from agent_platform.api.routes import _resolve_mode
 
     perm, allow, deny, override = _resolve_mode("plan", "do X")
     assert perm is None and allow and deny is None and override and override.endswith("do X")
-    perm, allow, deny, override = _resolve_mode("default", "do X")
-    assert perm == "bypassPermissions" and deny and "Bash" in deny and override is None
-    perm, allow, deny, override = _resolve_mode("auto", "do X")
-    assert perm == "bypassPermissions" and allow is None and deny is None and override is None
+    # default (and any non-plan mode) → full execution, no restrictions
+    for m in ("default", "auto", None):
+        perm, allow, deny, override = _resolve_mode(m, "do X")
+        assert perm == "bypassPermissions" and allow is None and deny is None and override is None
 
 
 def test_chat_rejects_invalid_mode(client: TestClient) -> None:

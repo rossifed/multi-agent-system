@@ -49,8 +49,9 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1, description="The prompt to send to the agent.")
     mode: Literal["default", "plan", "auto"] | None = Field(
         default=None,
-        description="Per-message agent mode: 'plan' (propose only), 'default' "
-        "(edit files, no shell), or 'auto' (full execution incl. shell).",
+        description="Per-message agent mode: 'plan' (propose only, no changes) or "
+        "'default' (full execution, including shell). 'auto' is accepted as an "
+        "alias of 'default'.",
     )
 
 
@@ -63,9 +64,6 @@ _PLAN_INSTRUCTION = (
     "[PLAN MODE — do NOT make any changes: do not create or edit files and do not "
     "run commands. Reply ONLY with a short, numbered plan of what you would do.]\n\n"
 )
-# "default" mode: full execution EXCEPT shell. A denylist works even under
-# bypassPermissions (an --allowedTools allowlist does not).
-_NO_SHELL_TOOLS = "Bash BashOutput KillShell"
 
 
 def _resolve_mode(
@@ -73,17 +71,13 @@ def _resolve_mode(
 ) -> tuple[str | None, str | None, str | None, str | None]:
     """Map a product mode to (permission_mode, allowed_tools, disallowed_tools, prompt_override).
 
-    - plan:    read-only tools + planning instruction → proposes, no changes.
-    - default: full execution but no shell (edits files; Bash denied).
-    - auto:    full execution including shell.
+    - plan: read-only tools + planning instruction → proposes, no changes.
+    - default (and anything else): full execution, including shell — as capable
+      as a local terminal session.
     """
     if mode == "plan":
         return None, _PLAN_TOOLS, None, _PLAN_INSTRUCTION + message
-    if mode == "default":
-        return "bypassPermissions", None, _NO_SHELL_TOOLS, None
-    if mode == "auto":
-        return "bypassPermissions", None, None, None
-    return None, None, None, None
+    return "bypassPermissions", None, None, None
 
 
 def _error_response(code: str, message: str, http_status: int) -> JSONResponse:

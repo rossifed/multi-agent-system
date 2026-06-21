@@ -11,10 +11,11 @@ import {
   type Interaction,
 } from "./api";
 
+const APP_VERSION = "v4 · stream+modes";
+
 const MODE_HINTS: Record<AgentMode, string> = {
   plan: "propose only, no changes",
-  default: "edits files, no shell",
-  auto: "full execution (incl. shell)",
+  default: "full access (files + shell)",
 };
 
 export default function App() {
@@ -178,7 +179,9 @@ export default function App() {
           )}
           <div className="min-w-0">
             <h1 className="truncate text-lg font-semibold md:text-xl">Agent Platform</h1>
-            <p className="hidden text-sm text-slate-500 sm:block">Claude Code session gateway</p>
+            <p className="hidden text-sm text-slate-500 sm:block">
+            Claude Code session gateway · {APP_VERSION}
+          </p>
           </div>
         </div>
         <button
@@ -292,7 +295,7 @@ export default function App() {
                 <div className="flex items-center gap-2 text-xs">
                   <span className="text-slate-400">Mode</span>
                   <div className="inline-flex overflow-hidden rounded border border-slate-300">
-                    {(["plan", "default", "auto"] as AgentMode[]).map((m) => (
+                    {(["plan", "default"] as AgentMode[]).map((m) => (
                       <button
                         key={m}
                         type="button"
