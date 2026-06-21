@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import {
   ApiError,
@@ -11,7 +13,7 @@ import {
   type Interaction,
 } from "./api";
 
-const APP_VERSION = "v4 · stream+modes";
+const APP_VERSION = "v5 · markdown";
 
 const MODE_HINTS: Record<AgentMode, string> = {
   plan: "propose only, no changes",
@@ -267,7 +269,13 @@ export default function App() {
                     }`}
                   >
                     <div className="mb-1 text-xs uppercase opacity-60">{item.role}</div>
-                    <div className="whitespace-pre-wrap break-words">{item.content}</div>
+                    {item.role === "agent" ? (
+                      <div className="prose prose-sm prose-slate max-w-none overflow-x-auto break-words prose-pre:bg-slate-800 prose-pre:text-slate-100">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
+                      </div>
+                    ) : (
+                      <div className="whitespace-pre-wrap break-words">{item.content}</div>
+                    )}
                   </div>
                 ))}
                 {live && (
