@@ -27,3 +27,11 @@ SESSION.md
 
 # OS / editor
 .DS_Store
+
+# POC runtime artifacts (regenerable)
+poc/*.seen
+poc/*.tui.log
+poc/*.jsonl
+poc/*.gen.json
+poc/orch.out
+poc/interactive_tui.log

@@ -59,6 +59,20 @@ class Settings(BaseSettings):
         description="JSON file for session persistence. Empty/None disables persistence.",
     )
 
+    # --- Inter-agent bus ---
+    # Shared JSONL file the bus reads/writes. The API process and every agent's MCP
+    # server must point at the SAME path (agents receive it via the BUS_FILE env var).
+    bus_file: str = Field(
+        default="./data/bus.jsonl",
+        description="Shared JSONL bus file (also passed to agents' MCP servers as BUS_FILE).",
+    )
+    # How often the SSE stream polls the bus file for new messages (seconds).
+    bus_stream_poll_seconds: float = Field(
+        default=0.5,
+        gt=0,
+        description="Server-side poll interval for the SSE bus stream.",
+    )
+
     # --- API / server ---
     log_level: str = Field(default="INFO", description="Root logging level.")
     log_json: bool = Field(default=False, description="Emit structured JSON logs when true.")

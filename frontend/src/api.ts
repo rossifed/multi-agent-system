@@ -32,6 +32,25 @@ export interface ChatResult {
   usage: Record<string, unknown>;
 }
 
+/** A message on the inter-agent bus. The human participates with the same shape. */
+export interface BusMessage {
+  id: string;
+  timestamp: string;
+  conversation_id: string | null;
+  message_type: string;
+  sender: string;
+  recipient: string | null;
+  content: string;
+}
+
+export interface PostBusMessageInput {
+  content: string;
+  sender?: string;
+  recipient?: string | null;
+  message_type?: string;
+  conversation_id?: string | null;
+}
+
 interface SuccessEnvelope<T> {
   status: "success";
   data: T;
@@ -84,4 +103,20 @@ export const api = {
     request<{ agent_id: string; outputs: Interaction[] }>(
       `/agents/${encodeURIComponent(agentId)}/outputs`,
     ).then((d) => d.outputs),
+
+  // --- Bus (human participates like an agent) ---
+
+  postBusMessage: (input: PostBusMessageInput) =>
+    request<BusMessage>("/bus/post", { method: "POST", body: JSON.stringify(input) }),
+
+  getBusHistory: (conversationId?: string) =>
+    request<{ messages: BusMessage[]; count: number }>(
+      `/bus/history${conversationId ? `?conversation_id=${encodeURIComponent(conversationId)}` : ""}`,
+    ).then((d) => d.messages),
 };
+
+/** URL of the SSE bus stream, consumed with the browser's `EventSource`. */
+export function busStreamUrl(conversationId?: string): string {
+  const query = conversationId ? `?conversation_id=${encodeURIComponent(conversationId)}` : "";
+  return `${API_BASE_URL}/bus/stream${query}`;
+}

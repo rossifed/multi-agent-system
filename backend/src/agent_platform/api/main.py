@@ -17,7 +17,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from agent_platform import __version__
+from agent_platform.api.bus_routes import router as bus_router
 from agent_platform.api.routes import router
+from agent_platform.bus import FileMessageStore, MessageBus
 from agent_platform.config import Settings, get_settings
 from agent_platform.core.backends import build_backend
 from agent_platform.core.session_manager import SessionManager
@@ -30,6 +32,7 @@ logger = logging.getLogger(__name__)
 def create_app(
     settings: Settings | None = None,
     session_manager: SessionManager | None = None,
+    bus: MessageBus | None = None,
 ) -> FastAPI:
     """Build and configure the FastAPI application.
 
@@ -37,6 +40,8 @@ def create_app(
         settings: Optional settings override (defaults to :func:`get_settings`).
         session_manager: Optional pre-built session manager. When omitted, one is
             constructed from ``settings`` during startup. Injection is used by tests.
+        bus: Optional pre-built message bus. When omitted, a file-backed bus is built
+            from ``settings.bus_file``. Injection is used by tests.
 
     Returns:
         A configured :class:`FastAPI` instance.
@@ -64,6 +69,11 @@ def create_app(
     if session_manager is not None:
         app.state.session_manager = session_manager
 
+    # The bus is cheap (just a file path) so it is built eagerly here rather than in
+    # lifespan; an injected bus (tests) takes precedence.
+    app.state.bus = bus or MessageBus(FileMessageStore(settings.bus_file))
+    app.state.bus_stream_poll_seconds = settings.bus_stream_poll_seconds
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -74,6 +84,7 @@ def create_app(
 
     _register_exception_handlers(app)
     app.include_router(router)
+    app.include_router(bus_router)
     return app
 
 

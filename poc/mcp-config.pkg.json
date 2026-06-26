@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "bus": {
+      "command": "uv",
+      "args": ["run", "--project", "/home/frossi/dev/atonra/multi-agent-system/backend", "python", "-m", "agent_platform.bus.mcp_server"],
+      "env": {
+        "AGENT_ID": "agentA",
+        "BUS_FILE": "/home/frossi/dev/atonra/multi-agent-system/backend/data/bus.jsonl",
+        "CONVERSATION_ID": "pkg-proof-001"
+      }
+    }
+  }
+}

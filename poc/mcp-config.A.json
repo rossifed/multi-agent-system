@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "bus": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--with",
+        "mcp",
+        "--no-project",
+        "python",
+        "/home/frossi/dev/atonra/multi-agent-system/poc/bus_server.py"
+      ],
+      "env": {
+        "AGENT_ID": "agentA",
+        "BUS_FILE": "/home/frossi/dev/atonra/multi-agent-system/poc/bus.jsonl"
+      }
+    }
+  }
+}
